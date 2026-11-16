@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delivery Disputes — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Delivery Disputes</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        
+        <!-- Submit Dispute Form -->
+        <div class="card">
+          <div class="card-header">
+            <h3>⚠️ Report a Delivery Problem</h3>
+          </div>
+          <div class="card-body">
+            
+            <p style="color: rgba(255,255,255,0.7); font-size: 0.88rem; margin-bottom: 1rem;">
+              If you experienced an issue with water delivery, incomplete quantity, or driver misconduct, lodge a dispute. The assigned Zone Officer will review and investigate.
+            </p>
+
+            <div id="dispute-form-alert" style="display:none;"></div>
+
+            <form id="dispute-form" novalidate>
+              
+              <div class="form-group">
+                <label for="bookingId">Associated Booking <span class="required">*</span></label>
+                <select id="bookingId" name="bookingId" required>
+                  <option value="">Loading eligible bookings...</option>
+                </select>
+                <div class="field-error" id="bookingId-error"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="disputeType">Issue Type <span class="required">*</span></label>
+                <select id="disputeType" name="disputeType" required>
+                  <option value="">-- Select Problem Type --</option>
+                  <option value="incomplete_delivery">Incomplete Delivery</option>
+                  <option value="incorrect_quantity">Incorrect Water Quantity</option>
+                  <option value="failed_delivery">Failed / No Show Delivery</option>
+                  <option value="driver_conduct">Driver Misconduct or Overcharging</option>
+                  <option value="water_quality">Water Quality or Contamination</option>
+                  <option value="other">Other Delivery Problem</option>
+                </select>
+                <div class="field-error" id="disputeType-error"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="description">Detailed Description <span class="required">*</span></label>
+                <textarea id="description" name="description" rows="3" placeholder="Explain in detail what happened during delivery..." required></textarea>
+                <div class="field-error" id="description-error"></div>
+              </div>
+
+              <button type="submit" class="btn btn-warning btn-block" id="submit-dispute-btn">
+                Submit Dispute to Zone Officer
+              </button>
+
+            </form>
+
+          </div>
+        </div>
+
+        <!-- Dispute History -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📋 My Dispute History</h3>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <div id="disputes-list-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading disputes...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('customer', 'Delivery Disputes');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  // Query parameter support (e.g. ?bookingId=BK-2026-0002)
+  const urlParams = new URLSearchParams(window.location.search);
+  const preselectedBooking = urlParams.get('bookingId');
+
+  async function initDisputes() {
+    try {
+      const [bookings, disputes] = await Promise.all([
+        BookingsAPI.getByCustomer(user.id),
+        DisputesAPI.getByCustomer(user.id)
+      ]);
+
+      // Populate booking select
+      const select = document.getElementById('bookingId');
+      if (!bookings.length) {
+        select.innerHTML = '<option value="">No bookings available</option>';
+      } else {
+        select.innerHTML = '<option value="">-- Select Booking ID --</option>';
+        bookings.slice().reverse().forEach(b => {
+          const opt = document.createElement('option');
+          opt.value = b.id;
+          opt.textContent = `${b.id} — ${b.capacity} gal (${b.preferredDate}) [${b.status}]`;
+          select.appendChild(opt);
+        });
+        if (preselectedBooking) {
+          select.value = preselectedBooking;
+        }
+      }
+
+      renderDisputesList(disputes);
+
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function renderDisputesList(disputes) {
+    const container = document.getElementById('disputes-list-container');
+    if (!disputes.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">✅</div>
+          <h4>No disputes filed</h4>
+          <p>You have not logged any complaints.</p>
+        </div>`;
+      return;
+    }
+
+    const items = disputes.slice().reverse().map(d => `
+      <div style="padding: 1rem 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+          <strong style="color: white;">Booking ${escapeHtml(d.bookingId)}</strong>
+          ${makeBadge(d.status)}
+        </div>
+        <div style="font-size: 0.8rem; color: rgba(255,255,255,0.4); margin-bottom: 0.5rem;">
+          Issue: <span style="text-transform: capitalize; color: rgba(255,255,255,0.8);">${(d.type || 'other').replace(/_/g, ' ')}</span> | 
+          Filed on: ${formatDate(d.createdAt)}
+        </div>
+        <p style="font-size: 0.85rem; color: rgba(255,255,255,0.7); margin-bottom: 0.5rem;">
+          "${escapeHtml(d.description)}"
+        </p>
+        ${d.resolution ? `
+          <div class="alert alert-success" style="font-size: 0.82rem; margin: 0.4rem 0 0;">
+            <strong>Officer Resolution:</strong><br>${escapeHtml(d.resolution)}
+          </div>
+        ` : `
+          <div style="font-size: 0.78rem; color: rgba(245,158,11,0.8);">
+            ⏳ Under review by Zone Officer
+          </div>
+        `}
+      </div>
+    `).join('');
+
+    container.innerHTML = items;
+  }
+
+  document.getElementById('dispute-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearAlert('dispute-form-alert');
+    clearFieldErrors('dispute-form');
+
+    const bookingId = document.getElementById('bookingId').value;
+    const disputeType = document.getElementById('disputeType').value;
+    const description = document.getElementById('description').value.trim();
+
+    let hasError = false;
+    if (!bookingId) {
+      showFieldError('bookingId', 'Please select a booking.');
+      hasError = true;
+    }
+    if (!disputeType) {
+      showFieldError('disputeType', 'Please select the issue type.');
+      hasError = true;
+    }
+    if (!description || description.length < 10) {
+      showFieldError('description', 'Please provide a clear description (min 10 characters).');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    const btn = document.getElementById('submit-dispute-btn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting Dispute...';
+
+    try {
+      const newDispute = {
+        id: generateId('d'),
+        bookingId: bookingId,
+        customerId: user.id,
+        zoneId: user.zoneId,
+        type: disputeType,
+        description: description,
+        status: 'open',
+        resolution: null,
+        createdAt: new Date().toISOString(),
+        resolvedAt: null,
+        resolvedBy: null
+      };
+
+      await DisputesAPI.create(newDispute);
+
+      showToast('Dispute logged successfully. Zone Officer notified.', 'success');
+      showAlert('dispute-form-alert', 'Dispute logged successfully! Your complaint has been submitted to the Zone Officer.', 'success');
+
+      document.getElementById('description').value = '';
+      setTimeout(() => {
+        initDisputes();
+        btn.disabled = false;
+        btn.textContent = 'Submit Dispute to Zone Officer';
+      }, 1000);
+
+    } catch (err) {
+      showAlert('dispute-form-alert', 'Error submitting dispute: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Submit Dispute to Zone Officer';
+    }
+  });
+
+  initDisputes();
+</script>
+</body>
+</html>

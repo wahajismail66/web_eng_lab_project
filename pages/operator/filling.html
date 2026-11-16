@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Water Filling Bay — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Water Filling Bay</span>
+      </div>
+      <div class="header-right">
+        <span>💧 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Filling Bay Overview -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">HYDRANT FILLING PROCESS</div>
+            <h3 style="color: white; margin: 0;">Water Metering & Tanker Filling</h3>
+          </div>
+          <div>
+            <button class="btn btn-secondary" onclick="loadFillingQueue()">🔄 Refresh Bay</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="filling-alert" style="display:none;"></div>
+
+      <!-- Active Filling Queue Table -->
+      <div class="card">
+        <div class="card-header">
+          <h3>💧 Tankers in Filling Queue</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="filling-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Checking filling bay...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Filling Control Modal -->
+<div class="modal-overlay" id="filling-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-fill-title">Record Water Filling</h3>
+      <button class="modal-close" onclick="closeFillingModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-fill-body">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer" id="modal-fill-footer">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('operator', 'Water Filling');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetTripId = urlParams.get('tripId');
+
+  let hydrantTrips = [];
+  let allTankers = [];
+  let allDrivers = [];
+  let allBookings = [];
+
+  async function loadFillingQueue() {
+    try {
+      const [trips, tankers, drivers, bookings] = await Promise.all([
+        TripsAPI.getByHydrant(user.hydrantId),
+        TankersAPI.getByHydrant(user.hydrantId),
+        UsersAPI.getByRole('driver'),
+        BookingsAPI.getByHydrant(user.hydrantId)
+      ]);
+
+      allTankers = tankers;
+      allDrivers = drivers;
+      allBookings = bookings;
+
+      // Filter trips that are in 'assigned' or 'filling' states
+      hydrantTrips = trips.filter(t => ['assigned', 'filling'].includes(t.deliveryStatus) || (t.deliveryStatus === 'dispatched' && !t.departureTime));
+
+      renderFillingTable(hydrantTrips);
+
+      if (targetTripId) {
+        const found = hydrantTrips.find(t => t.id === targetTripId);
+        if (found) openFillingModal(targetTripId);
+      }
+
+    } catch (err) {
+      showAlert('filling-alert', 'Error loading filling queue: ' + err.message, 'error');
+    }
+  }
+
+  function renderFillingTable(trips) {
+    const container = document.getElementById('filling-table-container');
+    if (!trips.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">💧</div>
+          <h4>No tankers awaiting water filling</h4>
+          <p>Assign a tanker in the <a href="assignment.html">Tanker Assignment</a> desk to queue it here.</p>
+        </div>`;
+      return;
+    }
+
+    const rows = trips.map(t => {
+      const tanker = allTankers.find(tk => tk.id === t.tankerId) || {};
+      const driver = allDrivers.find(d => d.id === t.driverId) || {};
+      const booking = allBookings.find(b => b.id === t.bookingId) || {};
+      const isFilling = t.fillingStartTime && !t.fillingCompletionTime;
+      const isCompleted = t.fillingCompletionTime;
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(t.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">Booking: ${t.bookingId}</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(tanker.registrationNumber || 'Tanker')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">Cap: ${tanker.capacity ? tanker.capacity.toLocaleString() : '—'} gal</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(driver.name || 'Driver')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${driver.phone || '—'}</div>
+          </td>
+          <td>${isFilling ? '<span class="badge badge-filling">Filling in Progress</span>' : (isCompleted ? '<span class="badge badge-approved">Filling Completed</span>' : '<span class="badge badge-assigned">Awaiting Filling</span>')}</td>
+          <td>
+            <div style="font-size: 0.85rem;">
+              Start: ${t.fillingStartTime ? formatTime(t.fillingStartTime) : 'Not started'}<br>
+              End: ${t.fillingCompletionTime ? formatTime(t.fillingCompletionTime) : '—'}
+            </div>
+          </td>
+          <td>
+            <button class="btn btn-sm ${isFilling ? 'btn-success' : 'btn-primary'}" onclick="openFillingModal('${t.id}')">
+              ${isFilling ? 'Complete Filling' : (isCompleted ? 'View Record' : 'Start Filling')}
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Trip ID</th>
+              <th>Tanker</th>
+              <th>Driver</th>
+              <th>Filling Stage</th>
+              <th>Timestamps</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openFillingModal(tripId) {
+    const trip = hydrantTrips.find(t => t.id === tripId);
+    if (!trip) return;
+    const tanker = allTankers.find(tk => tk.id === trip.tankerId) || {};
+    const driver = allDrivers.find(d => d.id === trip.driverId) || {};
+    const booking = allBookings.find(b => b.id === trip.bookingId) || {};
+
+    document.getElementById('modal-fill-title').textContent = `Filling Bay — Trip ${trip.id}`;
+
+    const isNotStarted = !trip.fillingStartTime;
+    const isFilling = trip.fillingStartTime && !trip.fillingCompletionTime;
+    const isCompleted = trip.fillingCompletionTime;
+
+    const content = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">TANKER REGISTRATION</span>
+          <div style="font-weight: 700; color: #7dd3fc; font-size: 1.05rem;">🚛 ${escapeHtml(tanker.registrationNumber || 'Tanker')}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">ASSIGNED DRIVER</span>
+          <div style="font-weight: 600;">👤 ${escapeHtml(driver.name || 'Driver')}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">BOOKING CAPACITY</span>
+          <div style="font-weight: 700;">${booking.capacity ? booking.capacity.toLocaleString() : '—'} Gallons</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DESTINATION</span>
+          <div style="font-size: 0.85rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${escapeHtml(booking.deliveryAddress || '—')}</div>
+        </div>
+      </div>
+
+      ${isNotStarted ? `
+        <div class="alert alert-info">
+          Click <strong>"Start Water Filling"</strong> to record commencement timestamp and engage hydrant valve meters.
+        </div>
+      ` : ''}
+
+      ${isFilling ? `
+        <div class="alert alert-warning">
+          Filling commenced at <strong>${formatDateTime(trip.fillingStartTime)}</strong>. Enter water volume filled to finalize.
+        </div>
+        <div class="form-group" style="margin-top: 1rem;">
+          <label for="filled-quantity-input">Metered Water Volume Filled (Gallons) <span class="required">*</span></label>
+          <input type="number" id="filled-quantity-input" value="${booking.capacity || tanker.capacity || 3000}" min="500" step="100" required />
+        </div>
+      ` : ''}
+
+      ${isCompleted ? `
+        <div class="alert alert-success">
+          ✅ Filling completed. Filled volume: <strong>${trip.waterQuantityFilled ? trip.waterQuantityFilled.toLocaleString() : '—'} Gallons</strong>.<br>
+          Started: ${formatDateTime(trip.fillingStartTime)} | Finished: ${formatDateTime(trip.fillingCompletionTime)}
+        </div>
+      ` : ''}
+    `;
+
+    document.getElementById('modal-fill-body').innerHTML = content;
+
+    const footer = document.getElementById('modal-fill-footer');
+    if (isNotStarted) {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeFillingModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="startFilling('${trip.id}', '${booking.id}', '${tanker.id}')">Start Water Filling</button>
+      `;
+    } else if (isFilling) {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeFillingModal()">Close</button>
+        <button class="btn btn-success" onclick="completeFilling('${trip.id}')">Complete Filling & Finalize Volume</button>
+      `;
+    } else {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeFillingModal()">Close</button>
+        <a href="dispatch.html?tripId=${trip.id}" class="btn btn-primary">Proceed to Dispatch →</a>
+      `;
+    }
+
+    document.getElementById('filling-modal').classList.add('open');
+  }
+
+  function closeFillingModal() {
+    document.getElementById('filling-modal').classList.remove('open');
+  }
+
+  async function startFilling(tripId, bookingId, tankerId) {
+    try {
+      const now = new Date().toISOString();
+      await TripsAPI.update(tripId, {
+        fillingStartTime: now,
+        deliveryStatus: 'filling'
+      });
+      await BookingsAPI.update(bookingId, { status: 'filling' });
+      await TankersAPI.update(tankerId, { availabilityStatus: 'filling' });
+
+      showToast('Water filling commenced!', 'info');
+      closeFillingModal();
+      loadFillingQueue();
+    } catch (err) {
+      showToast('Error starting filling: ' + err.message, 'error');
+    }
+  }
+
+  async function completeFilling(tripId) {
+    const qtyInput = document.getElementById('filled-quantity-input');
+    const filledQty = parseInt(qtyInput ? qtyInput.value : 0, 10);
+
+    if (!filledQty || filledQty <= 0) {
+      alert('Please specify the valid metered water quantity.');
+      return;
+    }
+
+    try {
+      const now = new Date().toISOString();
+      await TripsAPI.update(tripId, {
+        fillingCompletionTime: now,
+        waterQuantityFilled: filledQty
+      });
+
+      showToast('Filling completed and metered!', 'success');
+      closeFillingModal();
+      loadFillingQueue();
+    } catch (err) {
+      showToast('Error finalizing filling: ' + err.message, 'error');
+    }
+  }
+
+  loadFillingQueue();
+</script>
+</body>
+</html>

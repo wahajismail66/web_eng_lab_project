@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Register — PaaniLink</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    /* ---- Dynamic Water Glow & Mesh ---- */
+    .mesh-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(circle at var(--mouse-x, 30%) var(--mouse-y, 45%), rgba(14, 165, 233, 0.22) 0%, transparent 45%),
+        radial-gradient(ellipse at 80% 20%, rgba(6, 182, 212, 0.18) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 85%, rgba(59, 130, 246, 0.16) 0%, transparent 55%),
+        linear-gradient(180deg, #020617 0%, #030d22 50%, #020617 100%);
+      transition: background 0.15s ease-out;
+    }
+
+    /* ---- 3 Layer Undulating Water Waves ---- */
+    .wave-container {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 220px;
+      pointer-events: none;
+      z-index: 1;
+      overflow: hidden;
+    }
+
+    .wave {
+      position: absolute;
+      bottom: 0; left: 0;
+      width: 200%;
+      height: 100%;
+    }
+
+    .wave svg {
+      width: 100%;
+      height: 100%;
+      fill: rgba(14, 165, 233, 0.08);
+      animation: waveMove 10s linear infinite;
+    }
+
+    .wave2 svg {
+      fill: rgba(6, 182, 212, 0.06);
+      animation: waveMove 14s linear infinite reverse;
+    }
+
+    @keyframes waveMove {
+      from { transform: translateX(0); }
+      to   { transform: translateX(-50%); }
+    }
+
+    /* ---- Floating particles & water bubbles ---- */
+    .particles { position: fixed; inset: 0; pointer-events: none; z-index: 1; }
+
+    .particle {
+      position: absolute;
+      border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.45), rgba(14,165,233,0.18));
+      box-shadow: inset 0 0 8px rgba(255,255,255,0.35), 0 0 16px rgba(14,165,233,0.3);
+      animation: particleFloat linear infinite;
+      backdrop-filter: blur(1.5px);
+    }
+
+    @keyframes particleFloat {
+      0%   { transform: translateY(105vh) scale(0.2) translateX(0); opacity: 0; }
+      12%  { opacity: 0.9; }
+      50%  { transform: translateY(50vh) scale(0.8) translateX(25px); }
+      85%  { opacity: 0.6; }
+      100% { transform: translateY(-120px) scale(1.1) translateX(-20px); opacity: 0; }
+    }
+
+    /* ---- Water Ripple on Click ---- */
+    .water-ripple {
+      position: fixed;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 9999;
+      border: 2px solid rgba(56, 189, 248, 0.75);
+      background: radial-gradient(circle, rgba(14, 165, 233, 0.3) 0%, rgba(6, 182, 212, 0.12) 60%, transparent 80%);
+      box-shadow: 0 0 25px rgba(14, 165, 233, 0.5), inset 0 0 15px rgba(56, 189, 248, 0.4);
+      transform: translate(-50%, -50%) scale(0);
+      animation: rippleExpand 0.75s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    }
+
+    @keyframes rippleExpand {
+      0%   { transform: translate(-50%, -50%) scale(0); opacity: 0.95; }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+    }
+
+    .register-card {
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 680px;
+      margin: 2rem auto;
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(32px) saturate(190%);
+      -webkit-backdrop-filter: blur(32px) saturate(190%);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 28px;
+      box-shadow:
+        0 24px 64px rgba(0,0,0,0.5),
+        inset 0 1px 1px rgba(255,255,255,0.25),
+        0 0 80px rgba(14,165,233,0.18);
+      padding: 2.5rem 2rem;
+      transform-style: preserve-3d;
+      will-change: transform;
+      transition: transform 0.25s cubic-bezier(0.2, 0, 0.2, 1), box-shadow 0.4s ease, border-color 0.4s ease;
+      animation: cardSlideUp 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .register-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 28px;
+      padding: 1.5px;
+      background: radial-gradient(400px circle at var(--card-mouse-x, 50%) var(--card-mouse-y, 50%), rgba(56, 189, 248, 0.6), transparent 70%);
+      -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask-composite: exclude;
+      pointer-events: none;
+      opacity: 0.85;
+      transition: opacity 0.3s ease;
+    }
+
+    @keyframes cardSlideUp {
+      from { transform: translateY(40px) scale(0.96); opacity: 0; }
+      to   { transform: translateY(0) scale(1); opacity: 1; }
+    }
+
+    .reg-logo {
+      display: flex;
+      align-items: center;
+      gap: 0.95rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .reg-logo-icon {
+      width: 54px; height: 54px;
+      background: linear-gradient(135deg, #0ea5e9, #06b6d4);
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.6rem;
+      box-shadow: 0 8px 24px rgba(14,165,233,0.5);
+      flex-shrink: 0;
+      animation: dropletFloat 3.5s ease-in-out infinite;
+      position: relative;
+    }
+
+    .reg-logo-icon::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 22px;
+      border: 2px solid rgba(56, 189, 248, 0.4);
+      animation: pulseRings 2.8s ease-out infinite;
+      pointer-events: none;
+    }
+
+    @keyframes pulseRings {
+      0%   { transform: scale(1); opacity: 0.85; }
+      100% { transform: scale(1.4); opacity: 0; }
+    }
+
+    @keyframes dropletFloat {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      50%      { transform: translateY(-5px) rotate(-3deg); box-shadow: 0 14px 35px rgba(14, 165, 233, 0.7); }
+    }
+
+    .reg-logo-text h1 {
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #fff 0%, #7dd3fc 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin: 0;
+      line-height: 1;
+    }
+
+    .reg-logo-text p {
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.45);
+      margin: 0.25rem 0 0;
+      font-weight: 500;
+    }
+
+    .card-eyebrow {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: #38bdf8;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+    }
+
+    .card-title {
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: white;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.75rem;
+    }
+
+    .section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+      color: #38bdf8;
+      border-bottom: 1px solid rgba(56,189,248,0.2);
+      padding-bottom: 0.5rem;
+      margin: 1.6rem 0 1.1rem;
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .form-group { margin-bottom: 1rem; }
+
+    .form-group label {
+      display: block;
+      font-size: 0.77rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: rgba(255,255,255,0.65);
+      margin-bottom: 0.4rem;
+      transition: color 0.2s ease;
+    }
+
+    .form-group:focus-within label {
+      color: #38bdf8;
+    }
+
+    .form-group label .req { color: #fb7185; }
+
+    .input-wrap { position: relative; }
+
+    .input-wrap input,
+    .input-wrap select,
+    .input-wrap textarea {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 13px;
+      font-size: 0.92rem;
+      color: white;
+      font-family: inherit;
+      transition: all 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .input-wrap input:hover,
+    .input-wrap select:hover,
+    .input-wrap textarea:hover {
+      border-color: rgba(56,189,248,0.4);
+      background: rgba(255,255,255,0.07);
+    }
+
+    .input-wrap input::placeholder,
+    .input-wrap textarea::placeholder { color: rgba(255,255,255,0.3); }
+
+    .input-wrap select option { background: #0c1a3a; color: white; }
+
+    .input-wrap input:focus,
+    .input-wrap select:focus,
+    .input-wrap textarea:focus {
+      outline: none;
+      border-color: #38bdf8;
+      background: rgba(255,255,255,0.10);
+      box-shadow: 0 0 0 4px rgba(56,189,248,0.2), 0 0 25px rgba(14,165,233,0.25);
+    }
+
+    .input-wrap input.error,
+    .input-wrap select.error {
+      border-color: rgba(239,68,68,0.7);
+      box-shadow: 0 0 0 4px rgba(239,68,68,0.15);
+    }
+
+    .input-wrap textarea { min-height: 76px; resize: vertical; }
+
+    .field-error {
+      font-size: 0.75rem;
+      color: #fca5a5;
+      margin-top: 0.3rem;
+      padding-left: 0.3rem;
+      display: none;
+    }
+    .field-error.visible { display: block; }
+
+    .form-hint {
+      font-size: 0.74rem;
+      color: rgba(255,255,255,0.35);
+      margin-top: 0.3rem;
+      padding-left: 0.3rem;
+    }
+
+    #register-alert { margin-bottom: 1rem; }
+
+    .btn-register {
+      width: 100%;
+      padding: 1rem;
+      background: linear-gradient(135deg, #0ea5e9, #0284c7, #0369a1);
+      background-size: 200% 200%;
+      color: white;
+      border: none;
+      border-radius: 14px;
+      font-size: 1.02rem;
+      font-weight: 800;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 6px 24px rgba(14,165,233,0.45);
+      margin-top: 1.6rem;
+      letter-spacing: 0.02em;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-register::before {
+      content: '';
+      position: absolute;
+      top: 0; left: -100%;
+      width: 100%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.28), transparent);
+      transition: left 0.6s ease;
+    }
+
+    .btn-register:hover::before {
+      left: 100%;
+    }
+
+    .btn-register:hover:not(:disabled) {
+      transform: translateY(-3px) scale(1.015);
+      box-shadow: 0 10px 36px rgba(14,165,233,0.65), 0 0 25px rgba(6, 182, 212, 0.4);
+      background-position: 100% 50%;
+    }
+
+    .btn-register:active:not(:disabled) {
+      transform: translateY(0) scale(0.98);
+    }
+
+    .btn-register:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    .login-link {
+      text-align: center;
+      margin-top: 1.35rem;
+      font-size: 0.86rem;
+      color: rgba(255,255,255,0.45);
+    }
+
+    .login-link a { color: #38bdf8; font-weight: 700; transition: all 0.25s ease; }
+    .login-link a:hover { color: white; text-shadow: 0 0 12px rgba(56, 189, 248, 0.7); }
+
+    @media (max-width: 600px) {
+      .form-row { grid-template-columns: 1fr; }
+      .register-card { padding: 1.85rem 1.25rem; border-radius: 22px; margin: 1rem auto; }
+      .input-wrap input,
+      .input-wrap select,
+      .input-wrap textarea {
+        font-size: 16px !important; /* Prevents auto-zoom on iOS */
+        padding: 0.9rem 1rem !important;
+      }
+    }
+  </style>
+</head>
+<body class="auth-body">
+
+  <!-- Mesh background -->
+  <div class="mesh-bg"></div>
+
+  <!-- Floating particles (created by JS) -->
+  <div class="particles" id="particles"></div>
+
+  <!-- Wave at bottom -->
+  <div class="wave-container">
+    <div class="wave">
+      <svg viewBox="0 0 1440 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M0,80 C240,160 480,0 720,80 C960,160 1200,0 1440,80 L1440,180 L0,180 Z"/>
+      </svg>
+    </div>
+    <div class="wave wave2">
+      <svg viewBox="0 0 1440 180" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M0,100 C360,20 720,160 1080,80 C1260,40 1380,120 1440,100 L1440,180 L0,180 Z"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="register-card">
+
+    <!-- Logo -->
+    <div class="reg-logo">
+      <div class="reg-logo-icon">💧</div>
+      <div class="reg-logo-text">
+        <h1>PaaniLink</h1>
+        <p>City Water Board Management System</p>
+      </div>
+    </div>
+
+    <div class="card-eyebrow">New Account</div>
+    <div class="card-title">Customer Registration</div>
+
+    <!-- Alert -->
+    <div id="register-alert"></div>
+
+    <form id="register-form" novalidate>
+
+      <!-- Personal Info -->
+      <div class="section-label">Personal Information</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Full Name <span class="req">*</span></label>
+          <div class="input-wrap">
+            <input type="text" id="name" placeholder="e.g. Ahmed Raza" required />
+          </div>
+          <div class="field-error" id="name-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label>CNIC <span class="req">*</span></label>
+          <div class="input-wrap">
+            <input type="text" id="cnic" placeholder="35202-1234567-1" maxlength="15" required />
+          </div>
+          <div class="field-error" id="cnic-error"></div>
+          <div class="form-hint">Format: 35202-1234567-1</div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Phone Number <span class="req">*</span></label>
+          <div class="input-wrap">
+            <input type="tel" id="phone" placeholder="03001234567" maxlength="11" required />
+          </div>
+          <div class="field-error" id="phone-error"></div>
+          <div class="form-hint">Start with 03, 11 digits</div>
+        </div>
+
+        <div class="form-group">
+          <label>Email Address <span class="req">*</span></label>
+          <div class="input-wrap">
+            <input type="email" id="email" placeholder="you@example.com" required />
+          </div>
+          <div class="field-error" id="email-error"></div>
+        </div>
+      </div>
+
+      <!-- Address -->
+      <div class="section-label">Address Information</div>
+
+      <div class="form-group">
+        <label>Complete Residential Address <span class="req">*</span></label>
+        <div class="input-wrap">
+          <textarea id="address" rows="2" placeholder="House No., Street, Area, City" required></textarea>
+        </div>
+        <div class="field-error" id="address-error"></div>
+      </div>
+
+      <div class="form-group">
+        <label>Zone <span class="req">*</span></label>
+        <div class="input-wrap">
+          <select id="zoneId" required>
+            <option value="">Loading zones…</option>
+          </select>
+        </div>
+        <div class="field-error" id="zoneId-error"></div>
+        <div class="form-hint">Select the zone where your residence is located</div>
+      </div>
+
+      <!-- Password -->
+      <div class="section-label">Account Security</div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Password <span class="req">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="password" placeholder="Minimum 6 characters" required />
+          </div>
+          <div class="field-error" id="password-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label>Confirm Password <span class="req">*</span></label>
+          <div class="input-wrap">
+            <input type="password" id="confirmPassword" placeholder="Repeat your password" required />
+          </div>
+          <div class="field-error" id="confirmPassword-error"></div>
+        </div>
+      </div>
+
+      <button type="submit" class="btn-register" id="register-btn">
+        Create Account →
+      </button>
+
+    </form>
+
+    <div class="login-link">
+      Already have an account? <a href="index.html">Sign in →</a>
+    </div>
+
+  </div>
+
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/nav.js"></script>
+  <script>
+    // Redirect if already logged in
+    (function () {
+      const user = getSession();
+      if (user) redirectToDashboard(user.role);
+    })();
+
+    // ---- Generate floating particles ----
+    (function createParticles() {
+      const container = document.getElementById('particles');
+      if (!container) return;
+      const count = 16;
+      for (let i = 0; i < count; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        const size = Math.random() * 55 + 10;
+        p.style.cssText = `
+          width: ${size}px;
+          height: ${size}px;
+          left: ${Math.random() * 100}%;
+          bottom: -${size}px;
+          animation-duration: ${Math.random() * 14 + 10}s;
+          animation-delay: ${Math.random() * 8}s;
+          opacity: ${Math.random() * 0.4 + 0.05};
+        `;
+        container.appendChild(p);
+      }
+    })();
+
+    // ---- Interactive Effects (Spotlight & Water Ripple) ----
+    (function initInteractive() {
+      window.addEventListener('mousemove', (e) => {
+        const x = (e.clientX / window.innerWidth) * 100;
+        const y = (e.clientY / window.innerHeight) * 100;
+        document.documentElement.style.setProperty('--mouse-x', `${x.toFixed(1)}%`);
+        document.documentElement.style.setProperty('--mouse-y', `${y.toFixed(1)}%`);
+      });
+
+      const card = document.querySelector('.register-card');
+      if (card && window.matchMedia('(pointer: fine)').matches) {
+        card.addEventListener('mousemove', (e) => {
+          const rect = card.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          card.style.setProperty('--card-mouse-x', `${(x / rect.width * 100).toFixed(1)}%`);
+          card.style.setProperty('--card-mouse-y', `${(y / rect.height * 100).toFixed(1)}%`);
+          const centerX = rect.width / 2;
+          const centerY = rect.height / 2;
+          const rotateX = -((y - centerY) / centerY) * 4;
+          const rotateY = ((x - centerX) / centerX) * 4;
+          card.style.transform = `perspective(1200px) rotateX(${rotateX.toFixed(2)}deg) rotateY(${rotateY.toFixed(2)}deg)`;
+        });
+        card.addEventListener('mouseleave', () => {
+          card.style.transform = 'perspective(1200px) rotateX(0deg) rotateY(0deg)';
+        });
+      }
+
+      window.addEventListener('click', (e) => {
+        if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
+        const ripple = document.createElement('div');
+        ripple.className = 'water-ripple';
+        const size = Math.max(130, Math.min(220, window.innerWidth * 0.16));
+        ripple.style.width = size + 'px';
+        ripple.style.height = size + 'px';
+        ripple.style.left = e.clientX + 'px';
+        ripple.style.top = e.clientY + 'px';
+        document.body.appendChild(ripple);
+        setTimeout(() => ripple.remove(), 750);
+      });
+    })();
+
+    // Load zones
+    async function loadZones() {
+      const select = document.getElementById('zoneId');
+      try {
+        const zones = await ZonesAPI.getAll();
+        select.innerHTML = '<option value="">-- Select your Zone --</option>';
+        zones.forEach(z => {
+          const opt = document.createElement('option');
+          opt.value = z.id;
+          opt.textContent = z.zoneName;
+          select.appendChild(opt);
+        });
+      } catch {
+        select.innerHTML = '<option value="">Cannot load zones (is JSON Server running?)</option>';
+      }
+    }
+
+    loadZones();
+
+    // Auto-format CNIC
+    document.getElementById('cnic').addEventListener('input', function () {
+      let v = this.value.replace(/[^0-9]/g, '');
+      if (v.length > 5)  v = v.slice(0, 5)  + '-' + v.slice(5);
+      if (v.length > 13) v = v.slice(0, 13) + '-' + v.slice(13);
+      this.value = v.slice(0, 15);
+    });
+
+    function showRegAlert(msg, type) {
+      const c = document.getElementById('register-alert');
+      const icon = type === 'error' ? '❌' : '✅';
+      c.innerHTML = `<div class="glass-alert ${type}"><span>${icon}</span><span>${msg}</span></div>`;
+    }
+
+    function clearRegAlert() {
+      document.getElementById('register-alert').innerHTML = '';
+    }
+
+    document.getElementById('register-form').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      clearRegAlert();
+
+      // Clear previous errors
+      ['name','cnic','phone','email','password','confirmPassword','address','zoneId'].forEach(id => {
+        const el = document.getElementById(id);
+        const err = document.getElementById(id + '-error');
+        if (el) el.classList.remove('error');
+        if (err) { err.textContent = ''; err.classList.remove('visible'); }
+      });
+
+      const formData = {
+        name:            document.getElementById('name').value,
+        cnic:            document.getElementById('cnic').value,
+        phone:           document.getElementById('phone').value,
+        email:           document.getElementById('email').value,
+        password:        document.getElementById('password').value,
+        confirmPassword: document.getElementById('confirmPassword').value,
+        address:         document.getElementById('address').value,
+        zoneId:          document.getElementById('zoneId').value,
+      };
+
+      const btn = document.getElementById('register-btn');
+      btn.disabled = true;
+      btn.textContent = 'Creating account…';
+
+      try {
+        await registerCustomer(formData);
+        showRegAlert('Account created successfully! Redirecting to login…', 'success');
+        setTimeout(() => { window.location.href = 'index.html'; }, 2000);
+      } catch (err) {
+        if (err.fieldErrors) {
+          Object.entries(err.fieldErrors).forEach(([field, msg]) => {
+            const el = document.getElementById(field);
+            const errEl = document.getElementById(field + '-error');
+            if (el) el.classList.add('error');
+            if (errEl) { errEl.textContent = msg; errEl.classList.add('visible'); }
+          });
+          showRegAlert('Please fix the errors highlighted below.', 'error');
+        } else {
+          showRegAlert(err.message, 'error');
+        }
+        btn.disabled = false;
+        btn.textContent = 'Create Account →';
+      }
+    });
+  </script>
+</body>
+</html>

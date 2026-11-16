@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Availability Management — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Availability Management</span>
+      </div>
+      <div class="header-right">
+        <span>💧 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Hydrant Station Operational Status Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-header">
+          <h3>💧 Hydrant Station Operational State</h3>
+          <span id="hydrant-status-badge"></span>
+        </div>
+        <div class="card-body">
+          <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.25rem;">
+            <div>
+              <h2 style="color:white; margin:0;" id="hydrant-name-text">Loading...</h2>
+              <div style="font-size:0.88rem; color:rgba(255,255,255,0.6); margin-top:0.3rem;" id="hydrant-meta-text">—</div>
+              <div id="hydrant-reason-banner" style="margin-top:0.6rem; display:none;"></div>
+            </div>
+            <div id="hydrant-toggle-btn-wrap">
+              <!-- Injected via JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="avail-alert" style="display:none;"></div>
+
+      <!-- Tanker Fleet Availability -->
+      <div class="card">
+        <div class="card-header">
+          <h3>🚛 Hydrant Tanker Fleet Availability</h3>
+          <span style="font-size: 0.82rem; color: rgba(255,255,255,0.6);" id="tanker-counter">Loading...</span>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="tankers-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading fleet status...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Reason Modal -->
+<div class="modal-overlay" id="reason-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-reason-title">Set Unavailability Reason</h3>
+      <button class="modal-close" onclick="closeReasonModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label for="reason-input">Reason for Unavailability <span class="required">*</span></label>
+        <textarea id="reason-input" rows="3" placeholder="e.g. Engine breakdown, tire puncture, preventive servicing, etc." required></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" id="modal-reason-footer">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('operator', 'Availability');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let currentHydrant = null;
+  let hydrantTankers = [];
+
+  async function loadAvailabilityData() {
+    try {
+      const [hydrant, tankers] = await Promise.all([
+        HydrantsAPI.getById(user.hydrantId),
+        TankersAPI.getByHydrant(user.hydrantId)
+      ]);
+
+      currentHydrant = hydrant;
+      hydrantTankers = tankers;
+
+      renderHydrantStatus(hydrant);
+      renderTankersTable(tankers);
+
+    } catch (err) {
+      showAlert('avail-alert', 'Error loading availability details: ' + err.message, 'error');
+    }
+  }
+
+  function renderHydrantStatus(hydrant) {
+    if (!hydrant) return;
+
+    document.getElementById('hydrant-name-text').textContent = hydrant.hydrantName;
+    document.getElementById('hydrant-meta-text').textContent = `Operating Hours: ${hydrant.operatingHours} | Daily Quota: ${hydrant.dailyQuota.toLocaleString()} Gallons`;
+    document.getElementById('hydrant-status-badge').innerHTML = makeBadge(hydrant.availabilityStatus);
+
+    const reasonBanner = document.getElementById('hydrant-reason-banner');
+    if (hydrant.availabilityStatus === 'unavailable' && hydrant.unavailableReason) {
+      reasonBanner.style.display = 'block';
+      reasonBanner.innerHTML = `<span style="color:#fca5a5; font-size:0.85rem;">⚠️ Station Offline: ${escapeHtml(hydrant.unavailableReason)}</span>`;
+    } else {
+      reasonBanner.style.display = 'none';
+    }
+
+    const isAvail = hydrant.availabilityStatus === 'available';
+    document.getElementById('hydrant-toggle-btn-wrap').innerHTML = isAvail ? `
+      <button class="btn btn-danger" onclick="promptHydrantUnavailable()">
+        ⚠️ Mark Station Unavailable
+      </button>
+    ` : `
+      <button class="btn btn-success" onclick="markHydrantAvailable()">
+        ✅ Restore Hydrant to Available
+      </button>
+    `;
+  }
+
+  function renderTankersTable(tankers) {
+    const container = document.getElementById('tankers-table-container');
+    document.getElementById('tanker-counter').textContent = `${tankers.length} Tankers in Fleet`;
+
+    if (!tankers.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🚛</div>
+          <h4>No tankers registered at this hydrant station</h4>
+        </div>`;
+      return;
+    }
+
+    const rows = tankers.map(t => {
+      const isAvailable = t.availabilityStatus === 'available' && t.isActive;
+      const isOnTrip = t.availabilityStatus === 'on-trip';
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1rem;">🚛 ${escapeHtml(t.registrationNumber)}</strong>
+          </td>
+          <td><strong>${t.capacity.toLocaleString()} Gallons</strong></td>
+          <td>${makeBadge(t.availabilityStatus)}</td>
+          <td>
+            ${t.driverAssigned ? `Assigned (Driver: ${t.driverAssigned})` : 'Unassigned'}
+          </td>
+          <td>
+            <div style="display:flex; gap:0.5rem;">
+              ${isOnTrip ? `
+                <button class="btn btn-sm btn-secondary" disabled>Currently on Route</button>
+              ` : (isAvailable ? `
+                <button class="btn btn-sm btn-danger" onclick="promptTankerUnavailable('${t.id}')">Mark Unavailable</button>
+              ` : `
+                <button class="btn btn-sm btn-success" onclick="markTankerAvailable('${t.id}')">Set Available</button>
+              `)}
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Tanker Reg. Number</th>
+              <th>Capacity</th>
+              <th>Status</th>
+              <th>Driver Binding</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  // Hydrant Availability
+  function promptHydrantUnavailable() {
+    document.getElementById('modal-reason-title').textContent = 'Set Hydrant Station Unavailable';
+    document.getElementById('reason-input').value = '';
+    document.getElementById('modal-reason-footer').innerHTML = `
+      <button class="btn btn-secondary" onclick="closeReasonModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmHydrantUnavailable()">Mark Offline</button>
+    `;
+    document.getElementById('reason-modal').classList.add('open');
+  }
+
+  async function confirmHydrantUnavailable() {
+    const reason = document.getElementById('reason-input').value.trim();
+    if (!reason) { alert('Please provide a reason.'); return; }
+
+    try {
+      await HydrantsAPI.update(user.hydrantId, {
+        availabilityStatus: 'unavailable',
+        unavailableReason: reason
+      });
+      showToast('Hydrant station marked as unavailable.', 'warning');
+      closeReasonModal();
+      loadAvailabilityData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  async function markHydrantAvailable() {
+    try {
+      await HydrantsAPI.update(user.hydrantId, {
+        availabilityStatus: 'available',
+        unavailableReason: null
+      });
+      showToast('Hydrant station restored to online & available.', 'success');
+      loadAvailabilityData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  // Tanker Availability
+  function promptTankerUnavailable(tankerId) {
+    document.getElementById('modal-reason-title').textContent = `Set Tanker Offline (${tankerId})`;
+    document.getElementById('reason-input').value = '';
+    document.getElementById('modal-reason-footer').innerHTML = `
+      <button class="btn btn-secondary" onclick="closeReasonModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="confirmTankerUnavailable('${tankerId}')">Mark Unavailable</button>
+    `;
+    document.getElementById('reason-modal').classList.add('open');
+  }
+
+  async function confirmTankerUnavailable(tankerId) {
+    const reason = document.getElementById('reason-input').value.trim();
+    if (!reason) { alert('Please state reason (e.g. maintenance).'); return; }
+
+    try {
+      await TankersAPI.update(tankerId, {
+        availabilityStatus: 'unavailable',
+        isActive: false
+      });
+      showToast('Tanker marked as unavailable.', 'info');
+      closeReasonModal();
+      loadAvailabilityData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  async function markTankerAvailable(tankerId) {
+    try {
+      await TankersAPI.update(tankerId, {
+        availabilityStatus: 'available',
+        isActive: true
+      });
+      showToast('Tanker is now available for assignment.', 'success');
+      loadAvailabilityData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  function closeReasonModal() {
+    document.getElementById('reason-modal').classList.remove('open');
+  }
+
+  loadAvailabilityData();
+</script>
+</body>
+</html>

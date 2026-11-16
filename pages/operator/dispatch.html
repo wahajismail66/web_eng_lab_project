@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tanker Dispatch — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Tanker Dispatch</span>
+      </div>
+      <div class="header-right">
+        <span>💧 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Dispatch Desk Header -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">OUTBOUND LOGISTICS</div>
+            <h3 style="color: white; margin: 0;">Vehicle Departure & Gate Pass Authorisation</h3>
+          </div>
+          <div>
+            <button class="btn btn-secondary" onclick="loadDispatchDesk()">🔄 Refresh Departures</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="dispatch-alert" style="display:none;"></div>
+
+      <!-- Two Sections: Ready for Dispatch & Dispatched Today -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        
+        <!-- Ready for Gate Departure -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🚀 Filled Tankers Ready for Departure</h3>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <div id="ready-dispatch-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Checking departure bay...</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Dispatched Tankers Today -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🛣️ Tankers En Route / Dispatched Today</h3>
+          </div>
+          <div class="card-body" style="padding: 0;">
+            <div id="en-route-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading en-route records...</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('operator', 'Dispatch');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetTripId = urlParams.get('tripId');
+
+  let allTrips = [];
+  let allTankers = [];
+  let allDrivers = [];
+  let allBookings = [];
+
+  async function loadDispatchDesk() {
+    try {
+      const [trips, tankers, drivers, bookings] = await Promise.all([
+        TripsAPI.getByHydrant(user.hydrantId),
+        TankersAPI.getByHydrant(user.hydrantId),
+        UsersAPI.getByRole('driver'),
+        BookingsAPI.getByHydrant(user.hydrantId)
+      ]);
+
+      allTrips = trips;
+      allTankers = tankers;
+      allDrivers = drivers;
+      allBookings = bookings;
+
+      // Filled tankers waiting for departure (has fillingCompletionTime but no departureTime)
+      const readyTrips = trips.filter(t => t.fillingCompletionTime && !t.departureTime);
+      
+      // En route / dispatched today
+      const today = new Date().toISOString().slice(0, 10);
+      const enRouteTrips = trips.filter(t => t.departureTime && t.departureTime.startsWith(today));
+
+      renderReadyList(readyTrips);
+      renderEnRouteList(enRouteTrips);
+
+    } catch (err) {
+      showAlert('dispatch-alert', 'Error loading dispatch records: ' + err.message, 'error');
+    }
+  }
+
+  function renderReadyList(trips) {
+    const container = document.getElementById('ready-dispatch-container');
+    if (!trips.length) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 2.5rem 1.5rem;">
+          <div class="empty-icon">🚛</div>
+          <h4>No tankers ready for departure</h4>
+          <p>Complete water filling in the <a href="filling.html">Filling Bay</a> first.</p>
+        </div>`;
+      return;
+    }
+
+    const items = trips.map(t => {
+      const tanker = allTankers.find(tk => tk.id === t.tankerId) || {};
+      const driver = allDrivers.find(d => d.id === t.driverId) || {};
+      const booking = allBookings.find(b => b.id === t.bookingId) || {};
+
+      return `
+        <div style="padding: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
+            <strong style="color:#7dd3fc; font-size:1.05rem;">🚛 ${escapeHtml(tanker.registrationNumber || 'Tanker')}</strong>
+            <span class="badge badge-filling">Filled: ${t.waterQuantityFilled ? t.waterQuantityFilled.toLocaleString() + ' gal' : '—'}</span>
+          </div>
+          <div style="font-size: 0.88rem; margin-bottom: 0.4rem;">
+            <strong>Driver:</strong> ${escapeHtml(driver.name || 'Driver')} (${driver.phone || '—'})<br>
+            <strong>Destination:</strong> ${escapeHtml(booking.deliveryAddress || '—')}
+          </div>
+          <div style="font-size: 0.78rem; color: rgba(255,255,255,0.4); margin-bottom: 0.85rem;">
+            Filled at: ${formatDateTime(t.fillingCompletionTime)} | Booking ID: ${t.bookingId}
+          </div>
+          <button class="btn btn-primary btn-block" onclick="dispatchTanker('${t.id}', '${t.bookingId}', '${t.tankerId}', ${t.waterQuantityFilled || 0})">
+            🚀 Authorize & Dispatch Tanker
+          </button>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = items;
+  }
+
+  function renderEnRouteList(trips) {
+    const container = document.getElementById('en-route-container');
+    if (!trips.length) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 2.5rem 1.5rem;">
+          <div class="empty-icon">🛣️</div>
+          <h4>No tankers dispatched yet today</h4>
+        </div>`;
+      return;
+    }
+
+    const items = trips.slice().reverse().map(t => {
+      const tanker = allTankers.find(tk => tk.id === t.tankerId) || {};
+      const driver = allDrivers.find(d => d.id === t.driverId) || {};
+
+      return `
+        <div style="padding: 1.1rem; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.35rem;">
+            <strong>${escapeHtml(tanker.registrationNumber || 'Tanker')}</strong>
+            ${makeBadge(t.deliveryStatus)}
+          </div>
+          <div style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">
+            Driver: ${escapeHtml(driver.name || 'Driver')} | Departure: ${formatTime(t.departureTime)}
+          </div>
+          <div style="font-size: 0.78rem; color: rgba(255,255,255,0.4); margin-top: 0.25rem;">
+            Trip Ref: ${t.id} (${t.waterQuantityFilled ? t.waterQuantityFilled.toLocaleString() + ' gal' : '—'})
+          </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = items;
+  }
+
+  async function dispatchTanker(tripId, bookingId, tankerId, waterQty) {
+    if (!confirmAction(`Confirm dispatch authorization for Trip ${tripId}?`)) return;
+
+    try {
+      const departureTime = new Date().toISOString();
+
+      // 1. Update Trip
+      await TripsAPI.update(tripId, {
+        departureTime: departureTime,
+        deliveryStatus: 'dispatched'
+      });
+
+      // 2. Update Booking
+      await BookingsAPI.update(bookingId, {
+        status: 'dispatched'
+      });
+
+      // 3. Update Tanker
+      await TankersAPI.update(tankerId, {
+        availabilityStatus: 'on-trip'
+      });
+
+      // 4. Update Daily Hydrant Quota
+      try {
+        const today = departureTime.slice(0, 10);
+        const quotas = await QuotasAPI.getByHydrant(user.hydrantId);
+        let todayQuota = quotas.find(q => q.date === today);
+
+        if (todayQuota) {
+          const newUsed = (todayQuota.usedQuota || 0) + waterQty;
+          const newRemaining = Math.max(0, todayQuota.dailyQuota - newUsed);
+          await QuotasAPI.update(todayQuota.id, {
+            usedQuota: newUsed,
+            remainingQuota: newRemaining
+          });
+        }
+      } catch (quotaErr) {
+        console.error('Quota update warning:', quotaErr);
+      }
+
+      showToast('Tanker dispatched! Handed off to driver route.', 'success');
+      loadDispatchDesk();
+
+    } catch (err) {
+      showToast('Dispatch failed: ' + err.message, 'error');
+    }
+  }
+
+  loadDispatchDesk();
+</script>
+</body>
+</html>

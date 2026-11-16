@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>City-Wide Reports & Statistics — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <style>
+    .stat-progress-bar {
+      height: 10px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
+      margin-top: 0.5rem;
+    }
+    .stat-progress-fill {
+      height: 100%;
+      border-radius: 5px;
+      transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+  </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Executive Reports</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Report Header -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">WATER BOARD METRICS & AUDIT</div>
+            <h3 style="color:white; margin:0;">City-Wide Operations & Analytics Report</h3>
+          </div>
+          <div>
+            <button class="btn btn-secondary" onclick="generateAllReports()">🔄 Refresh Real-Time Data</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Key Totals -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📋</div>
+          <div class="stat-info">
+            <div class="stat-value" id="r-total-bookings">—</div>
+            <div class="stat-label">Total Bookings</div>
+          </div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-icon">🏢</div>
+          <div class="stat-info">
+            <div class="stat-value" id="r-commercial-bookings">—</div>
+            <div class="stat-label">Commercial Orders</div>
+          </div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-icon">🎁</div>
+          <div class="stat-info">
+            <div class="stat-value" id="r-subsidised-bookings">—</div>
+            <div class="stat-label">Subsidised Orders</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">🏁</div>
+          <div class="stat-info">
+            <div class="stat-value" id="r-completed-trips">—</div>
+            <div class="stat-label">Successful Deliveries</div>
+          </div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-icon">❌</div>
+          <div class="stat-info">
+            <div class="stat-value" id="r-failed-trips">—</div>
+            <div class="stat-label">Failed Deliveries</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">💧</div>
+          <div class="stat-info">
+            <div class="stat-value" id="r-total-gallons">—</div>
+            <div class="stat-label">Water Delivered (gal)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Two Visual Sections: Zone-wise Stats & Hydrant Utilization -->
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+        
+        <!-- Zone-Wise Distribution -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🗺️ Zone-Wise Booking Demand</h3>
+          </div>
+          <div class="card-body" id="zone-stats-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Calculating zone demand...</div>
+          </div>
+        </div>
+
+        <!-- Fleet Utilization -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🚛 Tanker Fleet Utilization</h3>
+          </div>
+          <div class="card-body" id="fleet-stats-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Calculating fleet status...</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Hydrant Station Production Breakdown -->
+      <div class="card">
+        <div class="card-header">
+          <h3>💧 Hydrant Water Extraction & Daily Usage Summary</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="hydrant-usage-table">
+            <div class="spinner-wrapper"><div class="spinner"></div> Aggregating station logs...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'Reports');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  async function generateAllReports() {
+    try {
+      const [bookings, trips, zones, hydrants, tankers, quotas] = await Promise.all([
+        BookingsAPI.getAll(),
+        TripsAPI.getAll(),
+        ZonesAPI.getAll(),
+        HydrantsAPI.getAll(),
+        TankersAPI.getAll(),
+        QuotasAPI.getAll()
+      ]);
+
+      // Totals
+      const totalBookings = bookings.length;
+      const commercialCount = bookings.filter(b => b.bookingType === 'commercial').length;
+      const subsidisedCount = bookings.filter(b => b.bookingType === 'subsidised').length;
+      const completedTrips = trips.filter(t => t.deliveryStatus === 'delivered').length;
+      const failedTrips = trips.filter(t => t.deliveryStatus === 'failed').length;
+      const totalWater = trips.filter(t => t.deliveryStatus === 'delivered')
+                              .reduce((sum, t) => sum + (t.waterQuantityFilled || 0), 0);
+
+      document.getElementById('r-total-bookings').textContent = totalBookings;
+      document.getElementById('r-commercial-bookings').textContent = commercialCount;
+      document.getElementById('r-subsidised-bookings').textContent = subsidisedCount;
+      document.getElementById('r-completed-trips').textContent = completedTrips;
+      document.getElementById('r-failed-trips').textContent = failedTrips;
+      document.getElementById('r-total-gallons').textContent = totalWater.toLocaleString();
+
+      renderZoneDemand(zones, bookings);
+      renderFleetUtilization(tankers);
+      renderHydrantUsage(hydrants, quotas, trips);
+
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function renderZoneDemand(zones, bookings) {
+    const container = document.getElementById('zone-stats-container');
+    const total = bookings.length || 1;
+
+    const html = zones.map(z => {
+      const zoneCount = bookings.filter(b => b.zoneId === z.id).length;
+      const pct = Math.round((zoneCount / total) * 100);
+
+      return `
+        <div style="margin-bottom: 1.15rem;">
+          <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+            <strong>${escapeHtml(z.zoneName)}</strong>
+            <span style="color:#7dd3fc; font-weight:700;">${zoneCount} Orders (${pct}%)</span>
+          </div>
+          <div class="stat-progress-bar">
+            <div class="stat-progress-fill" style="width: ${pct}%; background: linear-gradient(90deg, #0ea5e9, #06b6d4);"></div>
+          </div>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = html;
+  }
+
+  function renderFleetUtilization(tankers) {
+    const container = document.getElementById('fleet-stats-container');
+    const total = tankers.length || 1;
+    const available = tankers.filter(t => t.availabilityStatus === 'available' && t.isActive).length;
+    const onTrip = tankers.filter(t => t.availabilityStatus === 'on-trip' || t.availabilityStatus === 'filling').length;
+    const offline = tankers.filter(t => !t.isActive || t.availabilityStatus === 'unavailable').length;
+
+    const availPct = Math.round((available / total) * 100);
+    const onTripPct = Math.round((onTrip / total) * 100);
+    const offlinePct = Math.round((offline / total) * 100);
+
+    container.innerHTML = `
+      <div style="margin-bottom: 1.25rem;">
+        <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+          <span>✅ In-Bay & Available</span>
+          <strong style="color:#6ee7b7;">${available} (${availPct}%)</strong>
+        </div>
+        <div class="stat-progress-bar">
+          <div class="stat-progress-fill" style="width: ${availPct}%; background: #10b981;"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1.25rem;">
+        <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+          <span>🚛 Dispatched / On Route</span>
+          <strong style="color:#7dd3fc;">${onTrip} (${onTripPct}%)</strong>
+        </div>
+        <div class="stat-progress-bar">
+          <div class="stat-progress-fill" style="width: ${onTripPct}%; background: #0ea5e9;"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <div style="display:flex; justify-content:space-between; font-size:0.9rem;">
+          <span>🔧 Maintenance / Offline</span>
+          <strong style="color:#fca5a5;">${offline} (${offlinePct}%)</strong>
+        </div>
+        <div class="stat-progress-bar">
+          <div class="stat-progress-fill" style="width: ${offlinePct}%; background: #ef4444;"></div>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.5rem; text-align: right; font-size: 0.85rem; color: rgba(255,255,255,0.5);">
+        Total Fleet Vehicles: <strong>${tankers.length}</strong>
+      </div>
+    `;
+  }
+
+  function renderHydrantUsage(hydrants, quotas, trips) {
+    const container = document.getElementById('hydrant-usage-table');
+
+    const rows = hydrants.map(h => {
+      const stationTrips = trips.filter(t => t.hydrantId === h.id);
+      const deliveredWater = stationTrips.filter(t => t.deliveryStatus === 'delivered')
+                                         .reduce((sum, t) => sum + (t.waterQuantityFilled || 0), 0);
+      const q = quotas.find(item => item.hydrantId === h.id) || { usedQuota: deliveredWater };
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1.05rem;">💧 ${escapeHtml(h.hydrantName)}</strong>
+          </td>
+          <td>${h.dailyQuota.toLocaleString()} Gallons</td>
+          <td><strong>${(q.usedQuota || deliveredWater).toLocaleString()} Gallons</strong></td>
+          <td><span class="badge badge-filling">${stationTrips.length} Dispatches</span></td>
+          <td><strong style="color:#6ee7b7;">${deliveredWater.toLocaleString()} Gallons</strong></td>
+          <td>${makeBadge(h.availabilityStatus)}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Hydrant Station</th>
+              <th>Allocated Quota</th>
+              <th>Extracted Today</th>
+              <th>Total Trips</th>
+              <th>Delivered Volume</th>
+              <th>Operating Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  generateAllReports();
+</script>
+</body>
+</html>

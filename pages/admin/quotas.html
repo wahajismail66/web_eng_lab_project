@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quota Management — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Water Quotas</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Action Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">WATER RESOURCE CONSERVATION</div>
+            <h3 style="color:white; margin:0;">Daily Hydrant Extraction Quotas</h3>
+          </div>
+          <div>
+            <button class="btn btn-secondary" onclick="loadQuotasData()">🔄 Refresh Quotas</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="quota-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>📊 Daily Hydrant Quotas Ledger</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="quotas-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading quota tracking...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Edit Quota Modal -->
+<div class="modal-overlay" id="quota-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="quota-modal-title">Adjust Station Quota</h3>
+      <button class="modal-close" onclick="closeQuotaModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="quota-form" novalidate>
+        <input type="hidden" id="edit-quota-id" />
+
+        <div class="form-group">
+          <label>Station</label>
+          <input type="text" id="q-station-name" disabled style="opacity:0.75; cursor:not-allowed;" />
+        </div>
+
+        <div class="form-group">
+          <label for="q-daily">Daily Maximum Quota (Gallons) <span class="required">*</span></label>
+          <input type="number" id="q-daily" min="5000" step="5000" required />
+          <div class="field-error" id="q-daily-error"></div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="save-quota-btn" style="margin-top:1rem;">
+          Update Daily Quota
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'Quota Management');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let quotasList = [];
+  let hydrantsList = [];
+
+  async function loadQuotasData() {
+    try {
+      const [quotas, hydrants] = await Promise.all([
+        QuotasAPI.getAll(),
+        HydrantsAPI.getAll()
+      ]);
+
+      quotasList = quotas;
+      hydrantsList = hydrants;
+
+      renderQuotasTable(quotas, hydrants);
+
+    } catch (err) {
+      showAlert('quota-alert', 'Error fetching quotas: ' + err.message, 'error');
+    }
+  }
+
+  function renderQuotasTable(quotas, hydrants) {
+    const container = document.getElementById('quotas-table-container');
+
+    const rows = hydrants.map(h => {
+      const q = quotas.find(item => item.hydrantId === h.id) || {
+        dailyQuota: h.dailyQuota,
+        usedQuota: 0,
+        remainingQuota: h.dailyQuota,
+        date: new Date().toISOString().slice(0, 10)
+      };
+
+      const percentUsed = Math.min(100, Math.round(((q.usedQuota || 0) / (q.dailyQuota || h.dailyQuota || 1)) * 100));
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1.05rem;">💧 ${escapeHtml(h.hydrantName)}</strong>
+            <div style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${h.operatingHours}</div>
+          </td>
+          <td><strong>${(q.dailyQuota || h.dailyQuota).toLocaleString()} Gallons</strong></td>
+          <td>${(q.usedQuota || 0).toLocaleString()} Gallons</td>
+          <td><strong style="color:#6ee7b7;">${(q.remainingQuota !== undefined ? q.remainingQuota : h.dailyQuota).toLocaleString()} Gallons</strong></td>
+          <td style="min-width: 140px;">
+            <div style="display:flex; justify-content:space-between; font-size:0.75rem; margin-bottom:0.25rem;">
+              <span>${percentUsed}% Extracted</span>
+            </div>
+            <div style="background:rgba(255,255,255,0.1); height:8px; border-radius:4px; overflow:hidden;">
+              <div style="background:${percentUsed > 80 ? '#ef4444' : '#0ea5e9'}; width:${percentUsed}%; height:100%; transition:width 0.4s ease;"></div>
+            </div>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick="editQuota('${h.id}', '${escapeHtml(h.hydrantName)}', ${q.dailyQuota || h.dailyQuota}, '${q.id || ''}')">
+              Adjust Quota
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Hydrant Station</th>
+              <th>Allocated Daily Quota</th>
+              <th>Dispatched Water</th>
+              <th>Remaining Available</th>
+              <th>Quota Consumption</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function editQuota(hydrantId, hydrantName, currentDaily, quotaId) {
+    document.getElementById('edit-quota-id').value = quotaId || hydrantId;
+    document.getElementById('q-station-name').value = hydrantName;
+    document.getElementById('q-daily').value = currentDaily;
+    clearFieldErrors('quota-form');
+    document.getElementById('quota-modal').classList.add('open');
+  }
+
+  function closeQuotaModal() {
+    document.getElementById('quota-modal').classList.remove('open');
+  }
+
+  document.getElementById('quota-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearFieldErrors('quota-form');
+
+    const id = document.getElementById('edit-quota-id').value;
+    const daily = parseInt(document.getElementById('q-daily').value, 10);
+
+    if (!daily || daily <= 0) {
+      showFieldError('q-daily', 'Please enter a valid daily quota');
+      return;
+    }
+
+    const btn = document.getElementById('save-quota-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      // Find matching quota
+      const existing = quotasList.find(q => q.id === id || q.hydrantId === id);
+      if (existing) {
+        const remaining = Math.max(0, daily - (existing.usedQuota || 0));
+        await QuotasAPI.update(existing.id, {
+          dailyQuota: daily,
+          remainingQuota: remaining
+        });
+      } else {
+        await QuotasAPI.create({
+          id: generateId('q'),
+          hydrantId: id,
+          date: new Date().toISOString().slice(0, 10),
+          dailyQuota: daily,
+          usedQuota: 0,
+          remainingQuota: daily
+        });
+      }
+
+      showToast('Daily water quota updated successfully!', 'success');
+      closeQuotaModal();
+      loadQuotasData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Update Daily Quota';
+    }
+  });
+
+  loadQuotasData();
+</script>
+</body>
+</html>

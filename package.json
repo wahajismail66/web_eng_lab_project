@@ -1,0 +1,11 @@
+{
+  "name": "paanilink",
+  "version": "1.0.0",
+  "description": "Water Tanker Booking and Dispatch Management System - City Water Board",
+  "scripts": {
+    "start": "json-server --watch db.json --port 3000 --host 127.0.0.1"
+  },
+  "devDependencies": {
+    "json-server": "^0.17.4"
+  }
+}

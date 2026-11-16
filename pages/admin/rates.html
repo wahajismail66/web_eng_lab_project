@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rate Management — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Rate Management</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Header Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body">
+          <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">TARIFF & WATER BOARD SUBSIDY SCHEDULE</div>
+          <h3 style="color:white; margin:0.2rem 0 0.4rem;">Official Water Tanker Rates</h3>
+          <p style="color:rgba(255,255,255,0.65); font-size:0.88rem; margin:0;">
+            Configure capacity-based pricing for standard commercial customers and approved welfare subsidy recipients.
+          </p>
+        </div>
+      </div>
+
+      <div id="rate-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>💰 Capacity Tariffs Schedule</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="rates-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading tariff schedule...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Edit Rate Modal -->
+<div class="modal-overlay" id="rate-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="rate-modal-title">Modify Tariff Rate</h3>
+      <button class="modal-close" onclick="closeRateModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="rate-form" novalidate>
+        <input type="hidden" id="edit-rate-id" />
+
+        <div class="form-group">
+          <label>Tanker Capacity Tier</label>
+          <input type="text" id="r-capacity-display" disabled style="opacity: 0.75; cursor: not-allowed;" />
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="r-comm">Commercial Rate (PKR) <span class="required">*</span></label>
+            <input type="number" id="r-comm" min="100" step="50" required />
+            <div class="field-error" id="r-comm-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="r-sub">Subsidised Rate (PKR) <span class="required">*</span></label>
+            <input type="number" id="r-sub" min="50" step="50" required />
+            <div class="field-error" id="r-sub-error"></div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="save-rate-btn" style="margin-top: 1rem;">
+          Update Tariff Schedule
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'Rate Management');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let ratesList = [];
+
+  async function loadRatesData() {
+    try {
+      ratesList = await RatesAPI.getAll();
+      renderRatesTable(ratesList);
+    } catch (err) {
+      showAlert('rate-alert', 'Error fetching rates: ' + err.message, 'error');
+    }
+  }
+
+  function renderRatesTable(rates) {
+    const container = document.getElementById('rates-table-container');
+    if (!rates.length) {
+      container.innerHTML = `<div class="empty-state"><h4>No tariff tiers found</h4></div>`;
+      return;
+    }
+
+    const rows = rates.map(r => {
+      const discount = r.commercialRate - r.subsidisedRate;
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1.15rem;">💧 ${r.capacity.toLocaleString()} Gallons</strong>
+            <div style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${r.unit || 'per tanker delivery'}</div>
+          </td>
+          <td><strong style="color:white; font-size:1.1rem;">${formatCurrency(r.commercialRate)}</strong></td>
+          <td><strong style="color:#6ee7b7; font-size:1.1rem;">${formatCurrency(r.subsidisedRate)}</strong></td>
+          <td>
+            <span class="badge badge-subsidised">
+              Relief: ${formatCurrency(discount)} (${Math.round((discount / r.commercialRate) * 100)}% off)
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick="editRate('${r.id}')">Edit Tariff</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Capacity Tier</th>
+              <th>Commercial Price</th>
+              <th>Subsidised Price</th>
+              <th>Subsidy Relief Discount</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function editRate(rateId) {
+    const r = ratesList.find(rate => rate.id === rateId);
+    if (!r) return;
+
+    document.getElementById('rate-modal-title').textContent = `Edit Tariff — ${r.capacity.toLocaleString()} Gallons`;
+    document.getElementById('edit-rate-id').value = r.id;
+    document.getElementById('r-capacity-display').value = `${r.capacity.toLocaleString()} Gallons Tier`;
+    document.getElementById('r-comm').value = r.commercialRate;
+    document.getElementById('r-sub').value = r.subsidisedRate;
+
+    clearFieldErrors('rate-form');
+    document.getElementById('rate-modal').classList.add('open');
+  }
+
+  function closeRateModal() {
+    document.getElementById('rate-modal').classList.remove('open');
+  }
+
+  document.getElementById('rate-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearFieldErrors('rate-form');
+
+    const editId = document.getElementById('edit-rate-id').value;
+    const comm = parseInt(document.getElementById('r-comm').value, 10);
+    const sub = parseInt(document.getElementById('r-sub').value, 10);
+
+    let hasError = false;
+    if (!comm || comm <= 0) { showFieldError('r-comm', 'Valid commercial rate required'); hasError = true; }
+    if (!sub || sub <= 0) { showFieldError('r-sub', 'Valid subsidised rate required'); hasError = true; }
+    if (sub > comm) { showFieldError('r-sub', 'Subsidised rate cannot exceed commercial rate'); hasError = true; }
+    if (hasError) return;
+
+    const btn = document.getElementById('save-rate-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      await RatesAPI.update(editId, {
+        commercialRate: comm,
+        subsidisedRate: sub
+      });
+
+      showToast('Tariff updated successfully!', 'success');
+      closeRateModal();
+      loadRatesData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Update Tariff Schedule';
+    }
+  });
+
+  loadRatesData();
+</script>
+</body>
+</html>

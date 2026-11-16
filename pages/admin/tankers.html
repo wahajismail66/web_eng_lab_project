@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tanker Fleet Management — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Tanker Fleet Management</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Action Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">WATER FLEET INVENTORY</div>
+            <h3 style="color:white; margin:0;">Heavy Water Tanker Logistics Vehicles</h3>
+          </div>
+          <button class="btn btn-primary" onclick="openCreateTankerModal()">
+            ➕ Register New Tanker
+          </button>
+        </div>
+      </div>
+
+      <div id="tanker-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>🚛 Registered Tanker Vehicles</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="tankers-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading fleet...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Tanker Modal -->
+<div class="modal-overlay" id="tanker-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="tanker-modal-title">Register Water Tanker</h3>
+      <button class="modal-close" onclick="closeTankerModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="tanker-form" novalidate>
+        <input type="hidden" id="edit-tanker-id" />
+
+        <div class="form-group">
+          <label for="t-reg">Registration Plate Number <span class="required">*</span></label>
+          <input type="text" id="t-reg" placeholder="e.g. LHR-789-WTK" required />
+          <div class="field-error" id="t-reg-error"></div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="t-capacity">Capacity (Gallons) <span class="required">*</span></label>
+            <select id="t-capacity" required>
+              <option value="1000">1,000 Gallons</option>
+              <option value="3000" selected>3,000 Gallons</option>
+              <option value="6000">6,000 Gallons</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="t-hydrant">Home Hydrant Station <span class="required">*</span></label>
+            <select id="t-hydrant" required>
+              <option value="">-- Select Hydrant --</option>
+            </select>
+            <div class="field-error" id="t-hydrant-error"></div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="t-status">Availability Status</label>
+            <select id="t-status">
+              <option value="available">Available</option>
+              <option value="on-trip">On Trip</option>
+              <option value="filling">Filling</option>
+              <option value="unavailable">Unavailable / Maintenance</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="t-active">Vehicle Active State</label>
+            <select id="t-active">
+              <option value="true">Active in Service</option>
+              <option value="false">Decommissioned / Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="save-tanker-btn" style="margin-top: 1rem;">
+          Save Tanker Vehicle
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'Tanker Mgmt');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let tankersList = [];
+  let hydrantsList = [];
+
+  async function loadTankersData() {
+    try {
+      const [tankers, hydrants] = await Promise.all([
+        TankersAPI.getAll(),
+        HydrantsAPI.getAll()
+      ]);
+
+      tankersList = tankers;
+      hydrantsList = hydrants;
+
+      populateHydrantSelect();
+      renderTankersTable(tankers);
+
+    } catch (err) {
+      showAlert('tanker-alert', 'Error fetching fleet: ' + err.message, 'error');
+    }
+  }
+
+  function populateHydrantSelect() {
+    const select = document.getElementById('t-hydrant');
+    select.innerHTML = '<option value="">-- Select Hydrant --</option>';
+    hydrantsList.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h.id;
+      opt.textContent = `${h.hydrantName} (${h.dailyQuota.toLocaleString()} gal/day)`;
+      select.appendChild(opt);
+    });
+  }
+
+  function renderTankersTable(tankers) {
+    const container = document.getElementById('tankers-table-container');
+    if (!tankers.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">🚛</div><h4>No tankers registered</h4></div>`;
+      return;
+    }
+
+    const rows = tankers.map(t => {
+      const hydrant = hydrantsList.find(h => h.id === t.hydrantId) || {};
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1.05rem;">🚛 ${escapeHtml(t.registrationNumber)}</strong>
+            <div style="font-size:0.75rem; color:rgba(255,255,255,0.4);">ID: ${t.id}</div>
+          </td>
+          <td><strong>${t.capacity.toLocaleString()} Gallons</strong></td>
+          <td>💧 ${escapeHtml(hydrant.hydrantName || 'Unassigned')}</td>
+          <td>${makeBadge(t.availabilityStatus)}</td>
+          <td>
+            <span class="badge ${t.isActive ? 'badge-approved' : 'badge-rejected'}">
+              ${t.isActive ? 'Active' : 'Inactive'}
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick="editTanker('${t.id}')">Edit</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Reg. Plate</th>
+              <th>Capacity</th>
+              <th>Station Base</th>
+              <th>Status</th>
+              <th>Service State</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openCreateTankerModal() {
+    document.getElementById('tanker-modal-title').textContent = 'Register New Water Tanker';
+    document.getElementById('edit-tanker-id').value = '';
+    document.getElementById('tanker-form').reset();
+    clearFieldErrors('tanker-form');
+    document.getElementById('tanker-modal').classList.add('open');
+  }
+
+  function editTanker(tankerId) {
+    const t = tankersList.find(tank => tank.id === tankerId);
+    if (!t) return;
+
+    document.getElementById('tanker-modal-title').textContent = `Edit Tanker — ${t.registrationNumber}`;
+    document.getElementById('edit-tanker-id').value = t.id;
+    document.getElementById('t-reg').value = t.registrationNumber || '';
+    document.getElementById('t-capacity').value = t.capacity || 3000;
+    document.getElementById('t-hydrant').value = t.hydrantId || '';
+    document.getElementById('t-status').value = t.availabilityStatus || 'available';
+    document.getElementById('t-active').value = t.isActive ? 'true' : 'false';
+
+    clearFieldErrors('tanker-form');
+    document.getElementById('tanker-modal').classList.add('open');
+  }
+
+  function closeTankerModal() {
+    document.getElementById('tanker-modal').classList.remove('open');
+  }
+
+  document.getElementById('tanker-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearFieldErrors('tanker-form');
+
+    const editId = document.getElementById('edit-tanker-id').value;
+    const reg = document.getElementById('t-reg').value.trim();
+    const capacity = parseInt(document.getElementById('t-capacity').value, 10);
+    const hydrantId = document.getElementById('t-hydrant').value;
+    const status = document.getElementById('t-status').value;
+    const isActive = document.getElementById('t-active').value === 'true';
+
+    let hasError = false;
+    if (!reg) { showFieldError('t-reg', 'Registration number required'); hasError = true; }
+    if (!hydrantId) { showFieldError('t-hydrant', 'Hydrant station required'); hasError = true; }
+    if (hasError) return;
+
+    const btn = document.getElementById('save-tanker-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      const payload = {
+        registrationNumber: reg,
+        capacity: capacity,
+        hydrantId: hydrantId,
+        availabilityStatus: status,
+        driverAssigned: null,
+        isActive: isActive
+      };
+
+      if (editId) {
+        await TankersAPI.update(editId, payload);
+        showToast('Tanker record updated!', 'success');
+      } else {
+        payload.id = generateId('t');
+        await TankersAPI.create(payload);
+        showToast('New tanker registered into fleet!', 'success');
+      }
+
+      closeTankerModal();
+      loadTankersData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Tanker Vehicle';
+    }
+  });
+
+  loadTankersData();
+</script>
+</body>
+</html>

@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Subsidy Applications Review — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Subsidy Applications</span>
+      </div>
+      <div class="header-right">
+        <span>🏛️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Status Filter -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">ZONE APPLICANT QUEUE</div>
+            <h3 style="color: white; margin: 0;" id="officer-zone-title">Zone Review</h3>
+          </div>
+          <div style="min-width: 200px;">
+            <select id="status-filter">
+              <option value="">All Applications</option>
+              <option value="pending" selected>Pending Review</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div id="subsidy-review-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>📄 Subsidy Verification Submissions</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="subsidy-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading applications...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Review Modal -->
+<div class="modal-overlay" id="review-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-app-title">Application Verification</h3>
+      <button class="modal-close" onclick="closeReviewModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-app-body">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer" id="modal-app-footer">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('officer', 'Subsidy Applications');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let allZoneApps = [];
+  let zoneCustomers = [];
+
+  async function loadApplications() {
+    try {
+      if (user.zoneId) {
+        const zone = await ZonesAPI.getById(user.zoneId);
+        document.getElementById('officer-zone-title').textContent = zone ? zone.zoneName : 'Unassigned Zone';
+      }
+
+      const [apps, users] = await Promise.all([
+        SubsidyAPI.getByZone(user.zoneId),
+        UsersAPI.getByZone(user.zoneId)
+      ]);
+
+      allZoneApps = apps;
+      zoneCustomers = users;
+      applyFilter();
+
+    } catch (err) {
+      showAlert('subsidy-review-alert', 'Error fetching applications: ' + err.message, 'error');
+    }
+  }
+
+  function applyFilter() {
+    const filterVal = document.getElementById('status-filter').value;
+    const filtered = allZoneApps.filter(a => !filterVal || a.status === filterVal);
+    renderTable(filtered);
+  }
+
+  document.getElementById('status-filter').addEventListener('change', applyFilter);
+
+  function renderTable(apps) {
+    const container = document.getElementById('subsidy-table-container');
+    if (!apps.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📄</div>
+          <h4>No subsidy applications match filter</h4>
+        </div>`;
+      return;
+    }
+
+    const rows = apps.slice().reverse().map(a => {
+      const customer = zoneCustomers.find(u => u.id === a.customerId) || {};
+      const isPending = a.status === 'pending';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(a.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">${formatDate(a.createdAt)}</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(customer.name || 'Applicant')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">CNIC: ${a.cnic || '—'}</div>
+          </td>
+          <td><span class="badge badge-subsidised">${escapeHtml(a.applicantCategory)}</span></td>
+          <td style="max-width: 250px;">
+            <div style="font-size: 0.85rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+              ${escapeHtml(a.proofDetails)}
+            </div>
+          </td>
+          <td>${makeBadge(a.status)}</td>
+          <td>
+            <button class="btn btn-sm ${isPending ? 'btn-primary' : 'btn-secondary'}" onclick="openReviewModal('${a.id}')">
+              ${isPending ? 'Verify Proof' : 'View Details'}
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>App ID</th>
+              <th>Applicant</th>
+              <th>Category</th>
+              <th>Document / Proof Details</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openReviewModal(appId) {
+    const app = allZoneApps.find(a => a.id === appId);
+    if (!app) return;
+    const customer = zoneCustomers.find(u => u.id === app.customerId) || {};
+
+    document.getElementById('modal-app-title').textContent = `Application Verification — ${app.id}`;
+
+    const isPending = app.status === 'pending';
+
+    const content = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">APPLICANT</span>
+          <div style="font-weight: 700; color: white;">${escapeHtml(customer.name)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CNIC / REGISTRATION</span>
+          <div>${escapeHtml(app.cnic)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">SUBSIDY CATEGORY</span>
+          <div style="text-transform: capitalize; font-weight: 600;">${app.applicantCategory}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">STATUS</span>
+          <div>${makeBadge(app.status)}</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">REGISTERED ADDRESS</span>
+        <div style="background: rgba(255,255,255,0.06); padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.88rem; margin-top: 0.2rem;">
+          ${escapeHtml(app.address || customer.address)}
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DOCUMENT & PROOF DETAILS</span>
+        <div style="background: rgba(14,165,233,0.1); border: 1px solid rgba(14,165,233,0.25); padding: 0.85rem; border-radius: 8px; font-size: 0.9rem; margin-top: 0.2rem; color: #bae6fd;">
+          ${escapeHtml(app.proofDetails)}
+        </div>
+      </div>
+
+      ${app.additionalInfo ? `
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">ADDITIONAL NOTES</span>
+        <div style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">${escapeHtml(app.additionalInfo)}</div>
+      </div>` : ''}
+
+      ${isPending ? `
+        <div class="form-group" style="margin-top: 1rem;">
+          <label for="rejection-reason-text">Rejection Reason (Required only if rejecting)</label>
+          <textarea id="rejection-reason-text" rows="2" placeholder="e.g. Inconclusive proof, electricity bill does not match applicant CNIC, etc."></textarea>
+        </div>
+      ` : (app.rejectionReason ? `
+        <div class="alert alert-error">
+          <strong>Recorded Rejection Reason:</strong><br>${escapeHtml(app.rejectionReason)}
+        </div>
+      ` : '')}
+    `;
+
+    document.getElementById('modal-app-body').innerHTML = content;
+
+    const footer = document.getElementById('modal-app-footer');
+    if (isPending) {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeReviewModal()">Cancel</button>
+        <button class="btn btn-danger" onclick="rejectApplication('${app.id}')">Reject Application</button>
+        <button class="btn btn-success" onclick="approveApplication('${app.id}', '${app.customerId}', '${app.applicantCategory}')">Verify & Approve</button>
+      `;
+    } else {
+      footer.innerHTML = `<button class="btn btn-secondary" onclick="closeReviewModal()">Close</button>`;
+    }
+
+    document.getElementById('review-modal').classList.add('open');
+  }
+
+  function closeReviewModal() {
+    document.getElementById('review-modal').classList.remove('open');
+  }
+
+  async function approveApplication(appId, customerId, category) {
+    if (!confirmAction('Approve this subsidy application and grant subsidized tanker access?')) return;
+
+    try {
+      // 1. Update application status
+      await SubsidyAPI.update(appId, {
+        status: 'approved',
+        reviewedBy: user.id,
+        reviewDate: new Date().toISOString()
+      });
+
+      // 2. Update user profile to enable subsidy
+      const userUpdate = {
+        subsidyEligible: true,
+        subsidyCategory: category,
+        monthlyBookingLimit: category === 'household' ? 2 : null
+      };
+      await UsersAPI.update(customerId, userUpdate);
+
+      showToast('Application approved & Customer profile upgraded!', 'success');
+      closeReviewModal();
+      loadApplications();
+    } catch (err) {
+      showToast('Approval failed: ' + err.message, 'error');
+    }
+  }
+
+  async function rejectApplication(appId) {
+    const reasonInput = document.getElementById('rejection-reason-text');
+    const reason = reasonInput ? reasonInput.value.trim() : '';
+
+    if (!reason || reason.length < 5) {
+      alert('Please specify the rejection reason.');
+      if (reasonInput) reasonInput.focus();
+      return;
+    }
+
+    if (!confirmAction('Reject this subsidy application?')) return;
+
+    try {
+      await SubsidyAPI.update(appId, {
+        status: 'rejected',
+        reviewedBy: user.id,
+        reviewDate: new Date().toISOString(),
+        rejectionReason: reason
+      });
+
+      showToast('Application rejected.', 'info');
+      closeReviewModal();
+      loadApplications();
+    } catch (err) {
+      showToast('Rejection failed: ' + err.message, 'error');
+    }
+  }
+
+  loadApplications();
+</script>
+</body>
+</html>

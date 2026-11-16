@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tanker & Driver Assignment — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Tanker Assignment</span>
+      </div>
+      <div class="header-right">
+        <span>💧 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <div class="card" style="max-width: 860px; margin: 0 auto 2rem;">
+        <div class="card-header">
+          <h3>🚛 Tanker & Driver Logistics Assignment</h3>
+        </div>
+        <div class="card-body">
+
+          <p style="color: rgba(255,255,255,0.7); font-size: 0.9rem; margin-bottom: 1.5rem;">
+            Assign an available tanker with matching capacity and a verified driver to the booking. 
+            The system strictly prevents conflicting assignments for tankers or drivers already on an active trip.
+          </p>
+
+          <div id="assign-alert" style="display:none;"></div>
+
+          <form id="assignment-form" novalidate>
+
+            <!-- Booking Selection -->
+            <div class="form-group">
+              <label for="bookingId">1. Select Approved Booking <span class="required">*</span></label>
+              <select id="bookingId" name="bookingId" required>
+                <option value="">Loading pending bookings...</option>
+              </select>
+              <div class="field-error" id="bookingId-error"></div>
+            </div>
+
+            <!-- Booking Overview Card -->
+            <div id="selected-booking-card" class="card" style="display:none; background: rgba(14,165,233,0.08); border-color: rgba(14,165,233,0.3); margin-bottom: 1.5rem;">
+              <div class="card-body" id="booking-meta-body" style="padding: 1.1rem;">
+                <!-- Injected via JS -->
+              </div>
+            </div>
+
+            <div class="form-row">
+              <!-- Tanker Selection -->
+              <div class="form-group">
+                <label for="tankerId">2. Available Tanker (Matching Capacity) <span class="required">*</span></label>
+                <select id="tankerId" name="tankerId" required>
+                  <option value="">-- First select a booking --</option>
+                </select>
+                <div class="field-error" id="tankerId-error"></div>
+                <div class="form-hint" id="tanker-hint">Only unassigned, active tankers at this hydrant are listed.</div>
+              </div>
+
+              <!-- Driver Selection -->
+              <div class="form-group">
+                <label for="driverId">3. Available Driver <span class="required">*</span></label>
+                <select id="driverId" name="driverId" required>
+                  <option value="">Loading available drivers...</option>
+                </select>
+                <div class="field-error" id="driverId-error"></div>
+                <div class="form-hint" id="driver-hint">Only drivers not currently on an active route are listed.</div>
+              </div>
+            </div>
+
+            <!-- Summary / Confirmation Box -->
+            <div class="price-box" style="margin-bottom: 1.5rem;">
+              <div style="font-size: 0.82rem; color: rgba(255,255,255,0.6);">NEXT DISPATCH WORKFLOW STEP</div>
+              <div style="font-weight: 700; color: #7dd3fc; font-size: 1.05rem; margin-top: 0.2rem;">
+                Water Filling at Hydrant Bay → Tanker Dispatch
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg btn-block" id="assign-btn">
+              Confirm Assignment & Prepare Filling
+            </button>
+
+          </form>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('operator', 'Tanker Assignment');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  // URL query check (?bookingId=BK-XXXX)
+  const urlParams = new URLSearchParams(window.location.search);
+  const preselectedBookingId = urlParams.get('bookingId');
+
+  let approvedBookings = [];
+  let availableTankers = [];
+  let availableDrivers = [];
+  let activeTrips = [];
+
+  async function initAssignment() {
+    try {
+      const [bookings, tankers, drivers, trips] = await Promise.all([
+        BookingsAPI.getByHydrant(user.hydrantId),
+        TankersAPI.getByHydrant(user.hydrantId),
+        UsersAPI.getByRole('driver'),
+        TripsAPI.getAll()
+      ]);
+
+      activeTrips = trips.filter(t => ['assigned', 'filling', 'dispatched', 'arrived'].includes(t.deliveryStatus));
+      
+      // Filter bookings that need assignment (status === 'approved')
+      approvedBookings = bookings.filter(b => b.status === 'approved' && !b.tripId);
+      
+      // Find busy driver IDs and busy tanker IDs
+      const busyTankerIds = new Set(activeTrips.map(t => t.tankerId));
+      const busyDriverIds = new Set(activeTrips.map(t => t.driverId));
+
+      availableTankers = tankers.filter(t => t.isActive && t.availabilityStatus === 'available' && !busyTankerIds.has(t.id));
+      availableDrivers = drivers.filter(d => d.accountStatus === 'active' && !busyDriverIds.has(d.id));
+
+      populateBookingDropdown();
+      populateDrivers();
+
+    } catch (err) {
+      showAlert('assign-alert', 'Error initializing assignment desk: ' + err.message, 'error');
+    }
+  }
+
+  function populateBookingDropdown() {
+    const select = document.getElementById('bookingId');
+    const btn = document.getElementById('assign-btn');
+
+    if (!approvedBookings.length) {
+      select.innerHTML = '<option value="">No approved bookings awaiting assignment</option>';
+      select.disabled = true;
+      document.getElementById('tankerId').disabled = true;
+      document.getElementById('driverId').disabled = true;
+      btn.disabled = true;
+      btn.textContent = 'No Bookings Awaiting Assignment';
+      showAlert('assign-alert', 'ℹ️ No approved bookings are currently awaiting assignment at this hydrant. When customers book or Zone Officers approve requests, they will appear here.', 'info');
+      return;
+    }
+
+    select.disabled = false;
+    document.getElementById('tankerId').disabled = false;
+    document.getElementById('driverId').disabled = false;
+    btn.disabled = false;
+    btn.textContent = 'Confirm Assignment & Prepare Filling';
+
+    select.innerHTML = '<option value="">-- Select Booking to Assign --</option>';
+    approvedBookings.forEach(b => {
+      const opt = document.createElement('option');
+      opt.value = b.id;
+      opt.textContent = `${b.id} — ${b.capacity.toLocaleString()} gal (${b.preferredDate} ${b.preferredTime})`;
+      select.appendChild(opt);
+    });
+
+    let targetToSelect = preselectedBookingId && approvedBookings.some(b => b.id === preselectedBookingId)
+      ? preselectedBookingId
+      : approvedBookings[0].id;
+
+    if (targetToSelect) {
+      select.value = targetToSelect;
+      onBookingSelected(targetToSelect);
+    }
+
+    select.addEventListener('change', (e) => onBookingSelected(e.target.value));
+  }
+
+  function onBookingSelected(bookingId) {
+    const booking = approvedBookings.find(b => b.id === bookingId);
+    const card = document.getElementById('selected-booking-card');
+    const tankerSelect = document.getElementById('tankerId');
+
+    if (!booking) {
+      card.style.display = 'none';
+      tankerSelect.innerHTML = '<option value="">-- First select a booking --</option>';
+      return;
+    }
+
+    // Show metadata
+    card.style.display = 'block';
+    document.getElementById('booking-meta-body').innerHTML = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.8rem; font-size: 0.88rem;">
+        <div><strong>Booking ID:</strong><br><span style="color:#7dd3fc; font-weight:700;">${booking.id}</span></div>
+        <div><strong>Required Capacity:</strong><br><span style="color:#6ee7b7; font-weight:700;">${booking.capacity.toLocaleString()} Gallons</span></div>
+        <div><strong>Scheduled:</strong><br>${booking.preferredDate} at ${booking.preferredTime}</div>
+      </div>
+      <div style="margin-top: 0.6rem; font-size: 0.85rem; color: rgba(255,255,255,0.8);">
+        <strong>Destination:</strong> ${escapeHtml(booking.deliveryAddress)}
+      </div>
+    `;
+
+    // Filter tankers that match required capacity
+    const matchingTankers = availableTankers.filter(t => t.capacity >= booking.capacity);
+    if (!matchingTankers.length) {
+      tankerSelect.innerHTML = `<option value="">⚠️ No available tanker with capacity >= ${booking.capacity.toLocaleString()} gal</option>`;
+      document.getElementById('tanker-hint').textContent = 'All suitable tankers at this hydrant are currently on-trip or unavailable.';
+    } else {
+      tankerSelect.innerHTML = '<option value="">-- Select Available Tanker --</option>';
+      matchingTankers.forEach((t, idx) => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.registrationNumber} (${t.capacity.toLocaleString()} gal capacity)`;
+        tankerSelect.appendChild(opt);
+      });
+      // Auto-select first matching tanker
+      tankerSelect.value = matchingTankers[0].id;
+      document.getElementById('tanker-hint').textContent = `${matchingTankers.length} matching tanker(s) ready in bay.`;
+    }
+  }
+
+  function populateDrivers() {
+    const driverSelect = document.getElementById('driverId');
+    if (!availableDrivers.length) {
+      driverSelect.innerHTML = '<option value="">⚠️ No drivers currently free</option>';
+      document.getElementById('driver-hint').textContent = 'All drivers are currently dispatched or offline.';
+      return;
+    }
+
+    driverSelect.innerHTML = '<option value="">-- Select Free Driver --</option>';
+    availableDrivers.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.textContent = `${d.name} (${d.phone})`;
+      driverSelect.appendChild(opt);
+    });
+    // Auto-select first available driver
+    driverSelect.value = availableDrivers[0].id;
+    document.getElementById('driver-hint').textContent = `${availableDrivers.length} verified driver(s) available for assignment.`;
+  }
+
+  // Handle Form Submission
+  document.getElementById('assignment-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearAlert('assign-alert');
+    clearFieldErrors('assignment-form');
+
+    const bookingId = document.getElementById('bookingId').value;
+    const tankerId = document.getElementById('tankerId').value;
+    const driverId = document.getElementById('driverId').value;
+
+    let hasError = false;
+    if (!bookingId) {
+      showFieldError('bookingId', 'Please select a booking.');
+      hasError = true;
+    }
+    if (!tankerId) {
+      showFieldError('tankerId', 'Please select an available tanker.');
+      hasError = true;
+    }
+    if (!driverId) {
+      showFieldError('driverId', 'Please select an available driver.');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    const btn = document.getElementById('assign-btn');
+    btn.disabled = true;
+    btn.textContent = 'Registering Assignment...';
+
+    try {
+      const booking = approvedBookings.find(b => b.id === bookingId);
+      const newTripId = generateId('tp');
+
+      // 1. Create Trip
+      const newTrip = {
+        id: newTripId,
+        bookingId: bookingId,
+        tankerId: tankerId,
+        driverId: driverId,
+        hydrantId: user.hydrantId,
+        fillingStartTime: null,
+        fillingCompletionTime: null,
+        waterQuantityFilled: booking ? booking.capacity : 0,
+        departureTime: null,
+        arrivalTime: null,
+        deliveredTime: null,
+        deliveryStatus: 'assigned',
+        failureReason: null,
+        customerConfirmed: false
+      };
+      await TripsAPI.create(newTrip);
+
+      // 2. Update Booking
+      await BookingsAPI.update(bookingId, {
+        status: 'assigned',
+        tripId: newTripId
+      });
+
+      // 3. Update Tanker Status to on-trip
+      await TankersAPI.update(tankerId, {
+        availabilityStatus: 'on-trip',
+        driverAssigned: driverId
+      });
+
+      showToast(`Assignment completed! Trip ID: ${newTripId}`, 'success');
+      showAlert('assign-alert', `Assignment confirmed! Tanker and Driver linked to Booking ${bookingId}. Transferring to Water Filling bay...`, 'success');
+
+      setTimeout(() => {
+        window.location.href = `filling.html?tripId=${newTripId}`;
+      }, 1500);
+
+    } catch (err) {
+      showAlert('assign-alert', 'Assignment failed: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Confirm Assignment & Prepare Filling';
+    }
+  });
+
+  initAssignment();
+</script>
+</body>
+</html>

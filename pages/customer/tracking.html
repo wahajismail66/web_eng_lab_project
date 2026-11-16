@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Track Tanker Delivery — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Delivery Tracking</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Booking Selector Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+          <div style="font-weight: 600;">Select Booking to Track:</div>
+          <div style="flex: 1; min-width: 260px;">
+            <select id="active-booking-select">
+              <option value="">Loading bookings...</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary" onclick="refreshTracking()">🔄 Refresh Status</button>
+        </div>
+      </div>
+
+      <div id="tracking-alert" style="display:none;"></div>
+
+      <div id="tracking-view" style="display:none;">
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem;">
+          
+          <!-- Timeline Card -->
+          <div class="card">
+            <div class="card-header">
+              <h3>📍 Delivery Progress Timeline</h3>
+              <span id="status-pill"></span>
+            </div>
+            <div class="card-body">
+              <div class="timeline" id="tracking-timeline">
+                <!-- 10 Steps injected via JS -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Trip & Tanker Info Card -->
+          <div>
+            <div class="card">
+              <div class="card-header">
+                <h3>🚛 Assigned Logistics</h3>
+              </div>
+              <div class="card-body" id="logistics-info">
+                <!-- Injected via JS -->
+              </div>
+            </div>
+
+            <!-- Customer Actions Card -->
+            <div class="card">
+              <div class="card-header">
+                <h3>⚡ Actions</h3>
+              </div>
+              <div class="card-body" id="tracking-actions" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <!-- Confirm delivery or dispute -->
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div id="no-booking-view" class="card" style="display:none;">
+        <div class="card-body">
+          <div class="empty-state">
+            <div class="empty-icon">📍</div>
+            <h4>No Active Booking Selected</h4>
+            <p>Select a booking from the dropdown above to view live dispatch and delivery tracking.</p>
+            <a href="booking.html" class="btn btn-primary" style="margin-top: 1rem;">Book a Water Tanker</a>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('customer', 'Track Delivery');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  // Check URL query param for specific booking
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetBookingId = urlParams.get('id');
+
+  let customerBookings = [];
+  let currentBooking = null;
+  let currentTrip = null;
+
+  async function initTracking() {
+    try {
+      customerBookings = await BookingsAPI.getByCustomer(user.id);
+      
+      const select = document.getElementById('active-booking-select');
+      if (!customerBookings || customerBookings.length === 0) {
+        select.innerHTML = '<option value="">No bookings found</option>';
+        document.getElementById('no-booking-view').style.display = 'block';
+        return;
+      }
+
+      select.innerHTML = '';
+      customerBookings.slice().reverse().forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = `${b.id} — ${b.capacity} gal (${formatDate(b.preferredDate)}) [${b.status}]`;
+        select.appendChild(opt);
+      });
+
+      if (targetBookingId && customerBookings.some(b => b.id === targetBookingId)) {
+        select.value = targetBookingId;
+      }
+
+      select.addEventListener('change', () => loadBookingTracking(select.value));
+      loadBookingTracking(select.value);
+
+    } catch (err) {
+      showAlert('tracking-alert', 'Failed to load tracking data: ' + err.message, 'error');
+    }
+  }
+
+  async function loadBookingTracking(bookingId) {
+    if (!bookingId) {
+      document.getElementById('tracking-view').style.display = 'none';
+      document.getElementById('no-booking-view').style.display = 'block';
+      return;
+    }
+
+    try {
+      currentBooking = await BookingsAPI.getById(bookingId);
+      
+      // Fetch associated trip if exists
+      const trips = await TripsAPI.getByBooking(bookingId);
+      currentTrip = trips && trips.length > 0 ? trips[0] : null;
+
+      document.getElementById('tracking-view').style.display = 'block';
+      document.getElementById('no-booking-view').style.display = 'none';
+      document.getElementById('status-pill').innerHTML = makeBadge(currentBooking.status);
+
+      renderTimeline(currentBooking, currentTrip);
+      renderLogistics(currentBooking, currentTrip);
+      renderActions(currentBooking, currentTrip);
+
+    } catch (err) {
+      showAlert('tracking-alert', 'Could not load booking details: ' + err.message, 'error');
+    }
+  }
+
+  function renderTimeline(booking, trip) {
+    const isSubsidised = booking.bookingType === 'subsidised';
+    
+    // Determine stages active/done based on booking & trip status
+    const statusMap = {
+      'pending_approval': 1,
+      'approved': 2,
+      'assigned': 3,
+      'filling': 4,
+      'dispatched': 5,
+      'arrived': 6,
+      'delivered': 7,
+      'customer_confirmed': 8,
+      'completed': 9,
+      'rejected': -1,
+      'cancelled': -1
+    };
+
+    let effectiveStage = 0;
+    if (booking.status === 'pending_approval') effectiveStage = 1;
+    else if (booking.status === 'approved') {
+      if (trip) {
+        if (trip.deliveryStatus === 'assigned') effectiveStage = 3;
+        else if (trip.deliveryStatus === 'filling') effectiveStage = 4;
+        else if (trip.deliveryStatus === 'dispatched') effectiveStage = 5;
+        else if (trip.deliveryStatus === 'arrived') effectiveStage = 6;
+        else if (trip.deliveryStatus === 'delivered') effectiveStage = 7;
+        else effectiveStage = 2;
+      } else {
+        effectiveStage = 2;
+      }
+    } else if (booking.status === 'completed') {
+      effectiveStage = 9;
+    }
+
+    // 10 Steps
+    const steps = [
+      { id: 0, title: '1. Booking Submitted', time: formatDateTime(booking.createdAt), condition: true },
+      { id: 1, title: '2. Awaiting Zone Officer Approval', time: isSubsidised ? (booking.approvalDate ? formatDateTime(booking.approvalDate) : 'Under Review') : 'Skipped (Commercial)', condition: isSubsidised },
+      { id: 2, title: '3. Booking Approved', time: booking.approvalDate ? formatDateTime(booking.approvalDate) : (isSubsidised ? 'Pending' : formatDateTime(booking.createdAt)), condition: true },
+      { id: 3, title: '4. Tanker & Driver Assigned', time: trip ? 'Assigned' : 'In queue at hydrant', condition: true },
+      { id: 4, title: '5. Water Filling at Hydrant', time: trip && trip.fillingStartTime ? formatDateTime(trip.fillingStartTime) : 'Pending filling', condition: true },
+      { id: 5, title: '6. Tanker Dispatched', time: trip && trip.departureTime ? formatDateTime(trip.departureTime) : 'Awaiting departure', condition: true },
+      { id: 6, title: '7. Driver Arrived at Location', time: trip && trip.arrivalTime ? formatDateTime(trip.arrivalTime) : 'En route', condition: true },
+      { id: 7, title: '8. Water Delivered', time: trip && trip.deliveredTime ? formatDateTime(trip.deliveredTime) : 'Awaiting delivery', condition: true },
+      { id: 8, title: '9. Customer Confirmation', time: (trip && trip.customerConfirmed) || booking.status === 'completed' ? 'Confirmed by Customer' : 'Pending Confirmation', condition: true },
+      { id: 9, title: '10. Completed', time: booking.status === 'completed' ? 'Order Finished' : 'Pending completion', condition: true }
+    ];
+
+    const timelineContainer = document.getElementById('tracking-timeline');
+    timelineContainer.innerHTML = steps.map(s => {
+      let stateClass = '';
+      if (effectiveStage > s.id) {
+        stateClass = 'done';
+      } else if (effectiveStage === s.id) {
+        stateClass = 'active';
+      }
+
+      return `
+        <div class="timeline-item ${stateClass}">
+          <div class="timeline-dot"></div>
+          <div class="timeline-label">${s.title}</div>
+          <div class="timeline-time">${s.time}</div>
+        </div>`;
+    }).join('');
+  }
+
+  async function renderLogistics(booking, trip) {
+    const container = document.getElementById('logistics-info');
+    if (!trip) {
+      container.innerHTML = `
+        <p style="color: rgba(255,255,255,0.6); font-size: 0.9rem;">
+          Your booking is in queue. Hydrant operator will assign an available tanker and driver shortly.
+        </p>
+        <div style="margin-top: 1rem; font-size: 0.85rem; color: rgba(255,255,255,0.4);">
+          Hydrant: Assigned station<br>
+          Address: ${escapeHtml(booking.deliveryAddress)}
+        </div>`;
+      return;
+    }
+
+    let tankerReg = 'Assigned';
+    let driverName = 'Assigned Driver';
+
+    try {
+      if (trip.tankerId) {
+        const t = await TankersAPI.getById(trip.tankerId);
+        if (t) tankerReg = t.registrationNumber;
+      }
+      if (trip.driverId) {
+        const d = await UsersAPI.getById(trip.driverId);
+        if (d) driverName = d.name;
+      }
+    } catch(e) {}
+
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 0.8rem; font-size: 0.9rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5);">Trip Reference:</span>
+          <div style="font-weight: 700;">${trip.id}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5);">Water Tanker:</span>
+          <div style="font-weight: 700; color: #7dd3fc;">🚛 ${tankerReg}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5);">Driver Name:</span>
+          <div style="font-weight: 600;">👤 ${driverName}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5);">Dispatched At:</span>
+          <div>${trip.departureTime ? formatDateTime(trip.departureTime) : 'Preparing for departure'}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5);">Water Quantity:</span>
+          <div>${trip.waterQuantityFilled ? trip.waterQuantityFilled.toLocaleString() + ' Gallons' : booking.capacity.toLocaleString() + ' Gallons'}</div>
+        </div>
+      </div>`;
+  }
+
+  function renderActions(booking, trip) {
+    const container = document.getElementById('tracking-actions');
+    const isDeliverable = (trip && trip.deliveryStatus === 'delivered') || booking.status === 'delivered';
+
+    let html = '';
+    if (isDeliverable && booking.status !== 'completed') {
+      html += `
+        <button class="btn btn-success btn-block" onclick="confirmDeliveryFromTrack('${booking.id}')">
+          ✅ Confirm Delivery Received
+        </button>
+        <a href="disputes.html?bookingId=${booking.id}" class="btn btn-warning btn-block">
+          ⚠️ Report Delivery Dispute
+        </a>
+      `;
+    } else if (booking.status === 'completed') {
+      html += `
+        <div class="alert alert-success" style="font-size: 0.85rem; margin: 0;">
+          ✅ Delivery verified and completed.
+        </div>
+        <a href="bills.html" class="btn btn-secondary btn-block">View Receipt / Bill</a>
+      `;
+    } else {
+      html += `
+        <p style="color: rgba(255,255,255,0.5); font-size: 0.85rem; margin: 0;">
+          Tracking updates in real-time as the driver and operator advance status.
+        </p>
+      `;
+    }
+    container.innerHTML = html;
+  }
+
+  async function confirmDeliveryFromTrack(bookingId) {
+    if (!confirmAction('Confirm that the water tanker has safely delivered water?')) return;
+    try {
+      await BookingsAPI.update(bookingId, { status: 'completed' });
+      if (currentTrip) {
+        await TripsAPI.update(currentTrip.id, { deliveryStatus: 'delivered', customerConfirmed: true });
+      }
+      showToast('Delivery confirmed! Thank you.', 'success');
+      refreshTracking();
+    } catch (err) {
+      showToast('Error confirming delivery: ' + err.message, 'error');
+    }
+  }
+
+  function refreshTracking() {
+    const select = document.getElementById('active-booking-select');
+    loadBookingTracking(select.value);
+  }
+
+  initTracking();
+</script>
+</body>
+</html>

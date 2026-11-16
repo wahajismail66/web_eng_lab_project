@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Assigned Delivery Trips — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+  <style>
+    /* Mobile-First Driver Delivery Card */
+    .trip-card {
+      background: rgba(255, 255, 255, 0.07);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--radius-lg);
+      padding: 1.4rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+      position: relative;
+    }
+
+    .trip-card.active-route {
+      border-color: rgba(56, 189, 248, 0.5);
+      box-shadow: 0 0 25px rgba(14, 165, 233, 0.25);
+    }
+
+    .trip-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 0.75rem;
+    }
+
+    .trip-dest {
+      background: rgba(14, 165, 233, 0.12);
+      border: 1px solid rgba(14, 165, 233, 0.25);
+      border-radius: var(--radius);
+      padding: 0.9rem;
+      margin: 1rem 0;
+    }
+
+    .btn-driver-action {
+      padding: 0.95rem;
+      font-size: 1.05rem;
+      font-weight: 800;
+      border-radius: var(--radius);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+    }
+  </style>
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">My Delivery Trips</span>
+      </div>
+      <div class="header-right">
+        <span>🚛 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Status Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">DRIVER MANIFEST</div>
+            <h3 style="color:white; margin:0;">Active & Assigned Trips</h3>
+          </div>
+          <div>
+            <button class="btn btn-secondary" onclick="loadDriverTrips()">🔄 Refresh Manifest</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="driver-trips-alert" style="display:none;"></div>
+
+      <!-- Driver Trip Cards Container -->
+      <div id="trips-container" style="max-width: 760px; margin: 0 auto;">
+        <div class="spinner-wrapper"><div class="spinner"></div> Loading assigned trips...</div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Failed Delivery Modal -->
+<div class="modal-overlay" id="failed-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Report Failed Delivery</h3>
+      <button class="modal-close" onclick="closeFailedModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:rgba(255,255,255,0.7); font-size:0.88rem; margin-bottom:1rem;">
+        State the reason why this delivery could not be completed at the destination.
+      </p>
+
+      <div class="form-group">
+        <label for="failed-reason">Failure Reason <span class="required">*</span></label>
+        <select id="failed-reason" required>
+          <option value="">-- Select Reason --</option>
+          <option value="House locked">House Locked / No Response</option>
+          <option value="Road blocked">Road Blocked / Inaccessible Street</option>
+          <option value="Customer unavailable">Customer Unavailable / Unreachable</option>
+          <option value="Water storage full">Customer Water Underground Tank Full</option>
+          <option value="Other">Other Operational Impairment</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="failed-explanation">Detailed Driver Explanation</label>
+        <textarea id="failed-explanation" rows="2" placeholder="Optional notes for customer support & dispatch logs..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" id="failed-modal-footer">
+      <button class="btn btn-secondary" onclick="closeFailedModal()">Cancel</button>
+      <button class="btn btn-danger" id="confirm-fail-btn">Record Delivery Failure</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('driver', 'My Trips');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let assignedTrips = [];
+  let allBookings = [];
+  let allTankers = [];
+  let allUsers = [];
+  let pendingFailTripId = null;
+
+  async function loadDriverTrips() {
+    try {
+      const [trips, bookings, tankers, users] = await Promise.all([
+        TripsAPI.getByDriver(user.id),
+        BookingsAPI.getAll(),
+        TankersAPI.getAll(),
+        UsersAPI.getAll()
+      ]);
+
+      allBookings = bookings;
+      allTankers = tankers;
+      allUsers = users;
+
+      // Filter active or newly assigned trips (not completed/failed)
+      assignedTrips = trips.filter(t => ['assigned', 'filling', 'dispatched', 'arrived'].includes(t.deliveryStatus));
+
+      renderTrips(assignedTrips);
+
+    } catch (err) {
+      showAlert('driver-trips-alert', 'Failed to retrieve manifest: ' + err.message, 'error');
+    }
+  }
+
+  function renderTrips(trips) {
+    const container = document.getElementById('trips-container');
+    if (!trips.length) {
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-body">
+            <div class="empty-state">
+              <div class="empty-icon">🏁</div>
+              <h4>No active trips assigned right now</h4>
+              <p>When the Hydrant Operator assigns a tanker trip to you, it will appear here in real time.</p>
+              <a href="history.html" class="btn btn-secondary" style="margin-top:1rem;">View Completed Trip History</a>
+            </div>
+          </div>
+        </div>`;
+      return;
+    }
+
+    const cardsHtml = trips.map(t => {
+      const booking = allBookings.find(b => b.id === t.bookingId) || {};
+      const customer = allUsers.find(u => u.id === booking.customerId) || {};
+      const tanker = allTankers.find(tk => tk.id === t.tankerId) || {};
+      
+      const isDispatched = t.deliveryStatus === 'dispatched';
+      const isArrived = t.deliveryStatus === 'arrived';
+      const isAssignedOnly = t.deliveryStatus === 'assigned' || t.deliveryStatus === 'filling';
+
+      return `
+        <div class="trip-card ${isDispatched || isArrived ? 'active-route' : ''}">
+          
+          <div class="trip-header">
+            <div>
+              <div style="font-size:0.75rem; color:rgba(255,255,255,0.4);">TRIP REFERENCE</div>
+              <h2 style="font-size:1.35rem; color:white; margin:0;">${escapeHtml(t.id)}</h2>
+              <div style="font-size:0.85rem; color:#7dd3fc; font-weight:600; margin-top:0.2rem;">
+                🚛 ${escapeHtml(tanker.registrationNumber || 'Tanker')} (${booking.capacity ? booking.capacity.toLocaleString() : '—'} gal)
+              </div>
+            </div>
+            <div>${makeBadge(t.deliveryStatus)}</div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; font-size:0.9rem;">
+            <div>
+              <span style="color:rgba(255,255,255,0.5); font-size:0.8rem;">CUSTOMER NAME</span>
+              <div style="font-weight:700; color:white;">${escapeHtml(customer.name || 'Customer')}</div>
+            </div>
+            <div>
+              <span style="color:rgba(255,255,255,0.5); font-size:0.8rem;">CONTACT PHONE</span>
+              <div>
+                ${customer.phone ? `
+                  <a href="tel:${customer.phone}" class="btn btn-sm btn-secondary" style="margin-top:0.2rem;">
+                    📞 Call ${customer.phone}
+                  </a>
+                ` : '—'}
+              </div>
+            </div>
+          </div>
+
+          <!-- Destination Box -->
+          <div class="trip-dest">
+            <span style="color:rgba(255,255,255,0.5); font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em;">DELIVERY ADDRESS</span>
+            <div style="font-size:1rem; font-weight:700; color:#fff; margin-top:0.2rem;">
+              📍 ${escapeHtml(booking.deliveryAddress || 'Address on file')}
+            </div>
+            ${booking.instructions ? `
+              <div style="margin-top:0.5rem; font-size:0.85rem; color:#fde68a;">
+                ⚠️ Note: "${escapeHtml(booking.instructions)}"
+              </div>
+            ` : ''}
+          </div>
+
+          <!-- Trip Stage Timestamps -->
+          <div style="font-size:0.78rem; color:rgba(255,255,255,0.45); margin-bottom:1.2rem; display:flex; flex-wrap:wrap; gap:0.8rem;">
+            <span>Booking: <strong>${t.bookingId}</strong></span>
+            ${t.departureTime ? `<span>Departed: <strong>${formatTime(t.departureTime)}</strong></span>` : ''}
+            ${t.arrivalTime ? `<span>Arrived: <strong>${formatTime(t.arrivalTime)}</strong></span>` : ''}
+          </div>
+
+          <!-- Action Buttons Based on Status -->
+          <div style="display:flex; flex-direction:column; gap:0.65rem;">
+            
+            ${isAssignedOnly ? `
+              <div class="alert alert-info" style="font-size:0.85rem; margin:0;">
+                ⏳ Tanker is being filled and prepared at the Hydrant. Departure authorization will be given by the operator.
+              </div>
+            ` : ''}
+
+            ${isDispatched ? `
+              <button class="btn btn-primary btn-driver-action" onclick="markArrived('${t.id}', '${t.bookingId}')">
+                📍 Arrived at Customer Location
+              </button>
+            ` : ''}
+
+            ${isArrived ? `
+              <button class="btn btn-success btn-driver-action" onclick="markDelivered('${t.id}', '${t.bookingId}', '${t.tankerId}')">
+                ✅ Complete Water Delivery
+              </button>
+              <button class="btn btn-danger btn-driver-action" onclick="promptFailed('${t.id}')">
+                ❌ Report Failed Delivery
+              </button>
+            ` : ''}
+
+          </div>
+
+        </div>`;
+    }).join('');
+
+    container.innerHTML = cardsHtml;
+  }
+
+  // 1. Mark Arrived
+  async function markArrived(tripId, bookingId) {
+    if (!confirmAction('Confirm arrival at the customer delivery destination?')) return;
+
+    try {
+      const now = new Date().toISOString();
+      await TripsAPI.update(tripId, {
+        arrivalTime: now,
+        deliveryStatus: 'arrived'
+      });
+      showToast('Arrival registered! Proceed to discharge water.', 'info');
+      loadDriverTrips();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  // 2. Mark Delivered
+  async function markDelivered(tripId, bookingId, tankerId) {
+    if (!confirmAction('Confirm that the full water volume has been unloaded and delivered?')) return;
+
+    try {
+      const now = new Date().toISOString();
+
+      // Update Trip
+      await TripsAPI.update(tripId, {
+        deliveredTime: now,
+        deliveryStatus: 'delivered'
+      });
+
+      // Update Booking
+      await BookingsAPI.update(bookingId, {
+        status: 'delivered'
+      });
+
+      // Free Tanker back to available
+      await TankersAPI.update(tankerId, {
+        availabilityStatus: 'available',
+        driverAssigned: null
+      });
+
+      showToast('Delivery marked as successful! Great job.', 'success');
+      loadDriverTrips();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  // 3. Mark Failed
+  function promptFailed(tripId) {
+    pendingFailTripId = tripId;
+    document.getElementById('failed-reason').value = '';
+    document.getElementById('failed-explanation').value = '';
+    document.getElementById('failed-modal').classList.add('open');
+
+    document.getElementById('confirm-fail-btn').onclick = async () => {
+      const reasonSelect = document.getElementById('failed-reason');
+      const explanationInput = document.getElementById('failed-explanation');
+
+      if (!reasonSelect.value) {
+        alert('Please choose a failure reason.');
+        return;
+      }
+
+      const fullReason = reasonSelect.value + (explanationInput.value.trim() ? ` — ${explanationInput.value.trim()}` : '');
+
+      const trip = assignedTrips.find(t => t.id === pendingFailTripId);
+      if (!trip) return;
+
+      try {
+        const now = new Date().toISOString();
+
+        await TripsAPI.update(pendingFailTripId, {
+          deliveryStatus: 'failed',
+          failureReason: fullReason,
+          deliveredTime: now
+        });
+
+        await BookingsAPI.update(trip.bookingId, {
+          status: 'failed'
+        });
+
+        // Free tanker back
+        await TankersAPI.update(trip.tankerId, {
+          availabilityStatus: 'available',
+          driverAssigned: null
+        });
+
+        showToast('Trip marked as failed. Dispatch logged.', 'warning');
+        closeFailedModal();
+        loadDriverTrips();
+      } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+      }
+    };
+  }
+
+  function closeFailedModal() {
+    document.getElementById('failed-modal').classList.remove('open');
+    pendingFailTripId = null;
+  }
+
+  loadDriverTrips();
+</script>
+</body>
+</html>

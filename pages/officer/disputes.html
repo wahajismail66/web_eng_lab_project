@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dispute Management — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Zone Disputes</span>
+      </div>
+      <div class="header-right">
+        <span>🏛️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Zone Jurisdiction Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">COMPLAINT DESK</div>
+            <h3 style="color: white; margin: 0;" id="officer-zone-header">Zone Disputes</h3>
+          </div>
+          <div style="min-width: 180px;">
+            <select id="status-filter">
+              <option value="">All Disputes</option>
+              <option value="open" selected>Open Complaints</option>
+              <option value="resolved">Resolved</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div id="officer-dispute-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>⚠️ Consumer Complaints & Delivery Grievances</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="officer-disputes-table">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading disputes...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Dispute Resolution Modal -->
+<div class="modal-overlay" id="resolution-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-dispute-title">Resolve Customer Dispute</h3>
+      <button class="modal-close" onclick="closeResolutionModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-dispute-body">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer" id="modal-dispute-footer">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('officer', 'Disputes');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let zoneDisputes = [];
+  let zoneBookings = [];
+  let zoneUsers = [];
+
+  async function loadOfficerDisputes() {
+    try {
+      if (user.zoneId) {
+        const zone = await ZonesAPI.getById(user.zoneId);
+        document.getElementById('officer-zone-header').textContent = zone ? zone.zoneName : 'Unassigned Zone';
+      }
+
+      const [disputes, bookings, users] = await Promise.all([
+        DisputesAPI.getAll(),
+        BookingsAPI.getByZone(user.zoneId),
+        UsersAPI.getByZone(user.zoneId)
+      ]);
+
+      zoneBookings = bookings;
+      zoneUsers = users;
+
+      // Filter disputes that belong to bookings in this officer's zone
+      const zoneBookingIds = new Set(bookings.map(b => b.id));
+      zoneDisputes = disputes.filter(d => zoneBookingIds.has(d.bookingId) || d.zoneId === user.zoneId);
+
+      applyDisputeFilter();
+
+    } catch (err) {
+      showAlert('officer-dispute-alert', 'Error fetching complaints: ' + err.message, 'error');
+    }
+  }
+
+  function applyDisputeFilter() {
+    const statusVal = document.getElementById('status-filter').value;
+    const filtered = zoneDisputes.filter(d => !statusVal || d.status === statusVal);
+    renderDisputesTable(filtered);
+  }
+
+  document.getElementById('status-filter').addEventListener('change', applyDisputeFilter);
+
+  function renderDisputesTable(disputes) {
+    const container = document.getElementById('officer-disputes-table');
+    if (!disputes.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">✅</div>
+          <h4>No complaints found</h4>
+          <p>All consumer delivery grievances in this zone are cleared.</p>
+        </div>`;
+      return;
+    }
+
+    const rows = disputes.slice().reverse().map(d => {
+      const customer = zoneUsers.find(u => u.id === d.customerId) || {};
+      const isOpen = d.status === 'open';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(d.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">${formatDate(d.createdAt)}</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(customer.name || 'Consumer')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">Booking: ${d.bookingId}</div>
+          </td>
+          <td><span style="text-transform: capitalize;">${(d.type || 'other').replace(/_/g, ' ')}</span></td>
+          <td style="max-width: 250px;">
+            <div style="font-size: 0.85rem; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+              "${escapeHtml(d.description)}"
+            </div>
+          </td>
+          <td>${makeBadge(d.status)}</td>
+          <td>
+            <button class="btn btn-sm ${isOpen ? 'btn-warning' : 'btn-secondary'}" onclick="openResolutionModal('${d.id}')">
+              ${isOpen ? 'Investigate & Resolve' : 'View Resolution'}
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Dispute ID</th>
+              <th>Customer</th>
+              <th>Category</th>
+              <th>Complaint Summary</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  async function openResolutionModal(disputeId) {
+    const dispute = zoneDisputes.find(d => d.id === disputeId);
+    if (!dispute) return;
+    const customer = zoneUsers.find(u => u.id === dispute.customerId) || {};
+    const booking = zoneBookings.find(b => b.id === dispute.bookingId) || {};
+
+    let tripInfo = 'Not assigned';
+    try {
+      const trips = await TripsAPI.getByBooking(dispute.bookingId);
+      if (trips && trips.length > 0) {
+        const trip = trips[0];
+        tripInfo = `Trip ${trip.id} (Status: ${trip.deliveryStatus}, Filled: ${trip.waterQuantityFilled || '—'} gal)`;
+      }
+    } catch(e) {}
+
+    document.getElementById('modal-dispute-title').textContent = `Dispute Investigation — ${dispute.id}`;
+
+    const isOpen = dispute.status === 'open';
+
+    const content = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CONSUMER</span>
+          <div style="font-weight: 700; color: white;">${escapeHtml(customer.name)} (${customer.phone || '—'})</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">BOOKING ID</span>
+          <div>${escapeHtml(dispute.bookingId)} (${booking.capacity ? booking.capacity + ' gal' : '—'})</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">LOGISTICS TRIP</span>
+          <div>${tripInfo}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DISPUTE NATURE</span>
+          <div style="text-transform: capitalize; font-weight: 600;">${(dispute.type || 'other').replace(/_/g, ' ')}</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">COMPLAINT STATEMENT</span>
+        <div style="background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); padding: 0.85rem; border-radius: 8px; font-size: 0.9rem; margin-top: 0.2rem; color: #fca5a5;">
+          "${escapeHtml(dispute.description)}"
+        </div>
+      </div>
+
+      ${isOpen ? `
+        <div class="form-group" style="margin-top: 1rem;">
+          <label for="resolution-text">Officer Investigation & Resolution Findings <span class="required">*</span></label>
+          <textarea id="resolution-text" rows="3" placeholder="Document the inquiry outcome (e.g. Tanker meter verified, driver reprimanded, replacement delivery authorized, etc.)" required></textarea>
+        </div>
+      ` : `
+        <div class="alert alert-success">
+          <strong>Official Resolution Findings:</strong><br>${escapeHtml(dispute.resolution)}
+          <div style="font-size: 0.75rem; color: rgba(255,255,255,0.6); margin-top: 0.4rem;">
+            Closed on ${formatDateTime(dispute.resolvedAt)}
+          </div>
+        </div>
+      `}
+    `;
+
+    document.getElementById('modal-dispute-body').innerHTML = content;
+
+    const footer = document.getElementById('modal-dispute-footer');
+    if (isOpen) {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeResolutionModal()">Cancel</button>
+        <button class="btn btn-success" onclick="resolveDispute('${dispute.id}')">Record Resolution & Close Dispute</button>
+      `;
+    } else {
+      footer.innerHTML = `<button class="btn btn-secondary" onclick="closeResolutionModal()">Close</button>`;
+    }
+
+    document.getElementById('resolution-modal').classList.add('open');
+  }
+
+  function closeResolutionModal() {
+    document.getElementById('resolution-modal').classList.remove('open');
+  }
+
+  async function resolveDispute(disputeId) {
+    const textInput = document.getElementById('resolution-text');
+    const resolution = textInput ? textInput.value.trim() : '';
+
+    if (!resolution || resolution.length < 10) {
+      alert('Please enter comprehensive resolution notes (minimum 10 characters).');
+      if (textInput) textInput.focus();
+      return;
+    }
+
+    if (!confirmAction('Record this resolution and close the dispute?')) return;
+
+    try {
+      await DisputesAPI.update(disputeId, {
+        status: 'resolved',
+        resolution: resolution,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: user.id
+      });
+
+      showToast('Dispute marked as resolved!', 'success');
+      closeResolutionModal();
+      loadOfficerDisputes();
+    } catch (err) {
+      showToast('Error recording resolution: ' + err.message, 'error');
+    }
+  }
+
+  loadOfficerDisputes();
+</script>
+</body>
+</html>

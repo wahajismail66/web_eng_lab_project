@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hydrant Management — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Hydrant Stations</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Action Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">WATER DISTRIBUTION INFRASTRUCTURE</div>
+            <h3 style="color:white; margin:0;">Hydrant Filling Stations</h3>
+          </div>
+          <button class="btn btn-primary" onclick="openCreateHydrantModal()">
+            ➕ Register New Hydrant
+          </button>
+        </div>
+      </div>
+
+      <div id="hydrant-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>💧 Registered Hydrant Stations</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="hydrants-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading stations...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Hydrant Modal -->
+<div class="modal-overlay" id="hydrant-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="hydrant-modal-title">Register Hydrant Station</h3>
+      <button class="modal-close" onclick="closeHydrantModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="hydrant-form" novalidate>
+        <input type="hidden" id="edit-hydrant-id" />
+
+        <div class="form-group">
+          <label for="h-name">Hydrant Name <span class="required">*</span></label>
+          <input type="text" id="h-name" placeholder="e.g. Hydrant 4 - Johar Town Bay" required />
+          <div class="field-error" id="h-name-error"></div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="h-zone">Assigned Zone <span class="required">*</span></label>
+            <select id="h-zone" required>
+              <option value="">-- Select Zone --</option>
+            </select>
+            <div class="field-error" id="h-zone-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="h-operator">Assigned Operator</label>
+            <select id="h-operator">
+              <option value="">Unassigned</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="h-hours">Operating Hours <span class="required">*</span></label>
+            <input type="text" id="h-hours" placeholder="06:00 - 22:00" required />
+            <div class="field-error" id="h-hours-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="h-quota">Daily Water Quota (Gallons) <span class="required">*</span></label>
+            <input type="number" id="h-quota" placeholder="50000" min="5000" step="5000" required />
+            <div class="field-error" id="h-quota-error"></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="h-address">Physical Street Address</label>
+          <input type="text" id="h-address" placeholder="Main Boulevard, Gate 2" />
+        </div>
+
+        <div class="form-group">
+          <label for="h-status">Station Availability</label>
+          <select id="h-status">
+            <option value="available">Available / Online</option>
+            <option value="unavailable">Unavailable / Offline</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="save-hydrant-btn" style="margin-top: 1rem;">
+          Save Hydrant Station
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'Hydrant Management');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let hydrantsList = [];
+  let zonesList = [];
+  let operatorsList = [];
+
+  async function loadHydrantsData() {
+    try {
+      const [hydrants, zones, operators] = await Promise.all([
+        HydrantsAPI.getAll(),
+        ZonesAPI.getAll(),
+        UsersAPI.getByRole('operator')
+      ]);
+
+      hydrantsList = hydrants;
+      zonesList = zones;
+      operatorsList = operators;
+
+      populateDropdowns();
+      renderHydrantsTable(hydrants);
+
+    } catch (err) {
+      showAlert('hydrant-alert', 'Error fetching hydrants: ' + err.message, 'error');
+    }
+  }
+
+  function populateDropdowns() {
+    const zoneSelect = document.getElementById('h-zone');
+    zoneSelect.innerHTML = '<option value="">-- Select Zone --</option>';
+    zonesList.forEach(z => {
+      const opt = document.createElement('option');
+      opt.value = z.id;
+      opt.textContent = z.zoneName;
+      zoneSelect.appendChild(opt);
+    });
+
+    const opSelect = document.getElementById('h-operator');
+    opSelect.innerHTML = '<option value="">Unassigned</option>';
+    operatorsList.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = `${o.name} (${o.phone})`;
+      opSelect.appendChild(opt);
+    });
+  }
+
+  function renderHydrantsTable(hydrants) {
+    const container = document.getElementById('hydrants-table-container');
+    if (!hydrants.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">💧</div><h4>No hydrants registered</h4></div>`;
+      return;
+    }
+
+    const rows = hydrants.map(h => {
+      const zone = zonesList.find(z => z.id === h.zoneId) || {};
+      const operator = operatorsList.find(o => o.id === h.operatorId) || {};
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1.05rem;">💧 ${escapeHtml(h.hydrantName)}</strong>
+            <div style="font-size:0.75rem; color:rgba(255,255,255,0.4);">${h.address || '—'}</div>
+          </td>
+          <td><strong>${escapeHtml(zone.zoneName || '—')}</strong></td>
+          <td>${operator.name ? `👤 ${escapeHtml(operator.name)}` : '<span style="color:rgba(255,255,255,0.4);">Unassigned</span>'}</td>
+          <td>${escapeHtml(h.operatingHours)}</td>
+          <td><strong style="color:#6ee7b7;">${h.dailyQuota ? h.dailyQuota.toLocaleString() + ' gal' : '—'}</strong></td>
+          <td>${makeBadge(h.availabilityStatus)}</td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick="editHydrant('${h.id}')">Edit</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Station Name</th>
+              <th>Serving Zone</th>
+              <th>Operator</th>
+              <th>Operating Hours</th>
+              <th>Daily Quota</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openCreateHydrantModal() {
+    document.getElementById('hydrant-modal-title').textContent = 'Register New Hydrant Station';
+    document.getElementById('edit-hydrant-id').value = '';
+    document.getElementById('hydrant-form').reset();
+    clearFieldErrors('hydrant-form');
+    document.getElementById('hydrant-modal').classList.add('open');
+  }
+
+  function editHydrant(hydrantId) {
+    const h = hydrantsList.find(station => station.id === hydrantId);
+    if (!h) return;
+
+    document.getElementById('hydrant-modal-title').textContent = `Edit Hydrant — ${h.hydrantName}`;
+    document.getElementById('edit-hydrant-id').value = h.id;
+    document.getElementById('h-name').value = h.hydrantName || '';
+    document.getElementById('h-zone').value = h.zoneId || '';
+    document.getElementById('h-operator').value = h.operatorId || '';
+    document.getElementById('h-hours').value = h.operatingHours || '';
+    document.getElementById('h-quota').value = h.dailyQuota || '';
+    document.getElementById('h-address').value = h.address || '';
+    document.getElementById('h-status').value = h.availabilityStatus || 'available';
+
+    clearFieldErrors('hydrant-form');
+    document.getElementById('hydrant-modal').classList.add('open');
+  }
+
+  function closeHydrantModal() {
+    document.getElementById('hydrant-modal').classList.remove('open');
+  }
+
+  document.getElementById('hydrant-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearFieldErrors('hydrant-form');
+
+    const editId = document.getElementById('edit-hydrant-id').value;
+    const name = document.getElementById('h-name').value.trim();
+    const zoneId = document.getElementById('h-zone').value;
+    const operatorId = document.getElementById('h-operator').value || null;
+    const hours = document.getElementById('h-hours').value.trim();
+    const quota = parseInt(document.getElementById('h-quota').value, 10);
+    const address = document.getElementById('h-address').value.trim();
+    const status = document.getElementById('h-status').value;
+
+    let hasError = false;
+    if (!name) { showFieldError('h-name', 'Station name required'); hasError = true; }
+    if (!zoneId) { showFieldError('h-zone', 'Serving zone required'); hasError = true; }
+    if (!hours) { showFieldError('h-hours', 'Operating hours required'); hasError = true; }
+    if (!quota || quota <= 0) { showFieldError('h-quota', 'Valid daily quota required'); hasError = true; }
+    if (hasError) return;
+
+    const btn = document.getElementById('save-hydrant-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      const payload = {
+        hydrantName: name,
+        zoneId: zoneId,
+        operatorId: operatorId,
+        operatingHours: hours,
+        dailyQuota: quota,
+        address: address,
+        availabilityStatus: status,
+        unavailableReason: status === 'available' ? null : 'Station maintenance'
+      };
+
+      if (editId) {
+        await HydrantsAPI.update(editId, payload);
+        showToast('Hydrant station updated!', 'success');
+      } else {
+        payload.id = generateId('h');
+        await HydrantsAPI.create(payload);
+        showToast('New hydrant station registered!', 'success');
+      }
+
+      // If operator assigned, bind hydrant to operator's user record
+      if (operatorId) {
+        await UsersAPI.update(operatorId, { hydrantId: editId || payload.id });
+      }
+
+      closeHydrantModal();
+      loadHydrantsData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Hydrant Station';
+    }
+  });
+
+  loadHydrantsData();
+</script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Profile — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">My Profile</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <div style="max-width: 800px; margin: 0 auto;">
+        
+        <div id="profile-alert" style="display:none;"></div>
+
+        <!-- User Information Card -->
+        <div class="card">
+          <div class="card-header">
+            <h3>👤 Personal & Account Details</h3>
+            <span id="subsidy-badge"></span>
+          </div>
+          <div class="card-body">
+            
+            <form id="profile-form" novalidate>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Full Name</label>
+                  <input type="text" id="name" disabled style="opacity: 0.75; cursor: not-allowed;" />
+                </div>
+                <div class="form-group">
+                  <label>CNIC</label>
+                  <input type="text" id="cnic" disabled style="opacity: 0.75; cursor: not-allowed;" />
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Email Address</label>
+                  <input type="email" id="email" disabled style="opacity: 0.75; cursor: not-allowed;" />
+                </div>
+                <div class="form-group">
+                  <label for="phone">Phone Number <span class="required">*</span></label>
+                  <input type="tel" id="phone" name="phone" required />
+                  <div class="field-error" id="phone-error"></div>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Registered Zone</label>
+                  <input type="text" id="zone-name" disabled style="opacity: 0.75; cursor: not-allowed;" />
+                </div>
+                <div class="form-group">
+                  <label>Monthly Subsidy Limit</label>
+                  <input type="text" id="monthly-limit" disabled style="opacity: 0.75; cursor: not-allowed;" />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="address">Residential Delivery Address <span class="required">*</span></label>
+                <textarea id="address" name="address" rows="2" required></textarea>
+                <div class="field-error" id="address-error"></div>
+              </div>
+
+              <div class="section-divider">Change Password (Leave blank to keep existing)</div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="new-password">New Password</label>
+                  <input type="password" id="new-password" placeholder="Minimum 6 characters" />
+                  <div class="field-error" id="new-password-error"></div>
+                </div>
+                <div class="form-group">
+                  <label for="confirm-password">Confirm New Password</label>
+                  <input type="password" id="confirm-password" placeholder="Repeat new password" />
+                  <div class="field-error" id="confirm-password-error"></div>
+                </div>
+              </div>
+
+              <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+                <button type="submit" class="btn btn-primary btn-lg" id="save-btn" style="flex: 1;">
+                  Save Profile Changes
+                </button>
+              </div>
+
+            </form>
+
+          </div>
+        </div>
+
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  let user = initDashboardPage('customer', 'My Profile');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  async function populateProfile() {
+    try {
+      // Re-fetch latest user record
+      const freshUser = await UsersAPI.getById(user.id);
+      user = freshUser;
+      saveSession(user);
+
+      document.getElementById('name').value = user.name || '';
+      document.getElementById('cnic').value = user.cnic || '';
+      document.getElementById('email').value = user.email || '';
+      document.getElementById('phone').value = user.phone || '';
+      document.getElementById('address').value = user.address || '';
+      document.getElementById('monthly-limit').value = user.monthlyBookingLimit ? `${user.monthlyBookingLimit} bookings / month` : 'Unlimited / Not applicable';
+
+      if (user.subsidyEligible) {
+        document.getElementById('subsidy-badge').innerHTML = `<span class="badge badge-approved">Subsidy: ${user.subsidyCategory || 'Eligible'}</span>`;
+      } else {
+        document.getElementById('subsidy-badge').innerHTML = `<span class="badge badge-inactive">Standard Commercial</span>`;
+      }
+
+      if (user.zoneId) {
+        const zone = await ZonesAPI.getById(user.zoneId);
+        document.getElementById('zone-name').value = zone ? zone.zoneName : 'Not Assigned';
+      }
+    } catch(err) {
+      console.error(err);
+    }
+  }
+
+  document.getElementById('profile-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearAlert('profile-alert');
+    clearFieldErrors('profile-form');
+
+    const phone = document.getElementById('phone').value.trim();
+    const address = document.getElementById('address').value.trim();
+    const newPass = document.getElementById('new-password').value;
+    const confirmPass = document.getElementById('confirm-password').value;
+
+    let hasError = false;
+    if (!phone || !/^03\d{9}$/.test(phone)) {
+      showFieldError('phone', 'Phone must start with 03 and have 11 digits.');
+      hasError = true;
+    }
+    if (!address || address.length < 8) {
+      showFieldError('address', 'Please provide a full address.');
+      hasError = true;
+    }
+    if (newPass) {
+      if (newPass.length < 6) {
+        showFieldError('new-password', 'Password must be at least 6 characters.');
+        hasError = true;
+      }
+      if (newPass !== confirmPass) {
+        showFieldError('confirm-password', 'Passwords do not match.');
+        hasError = true;
+      }
+    }
+
+    if (hasError) return;
+
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving Changes...';
+
+    try {
+      const updatePayload = {
+        phone: phone,
+        address: address
+      };
+      if (newPass) {
+        updatePayload.password = newPass;
+      }
+
+      const updated = await UsersAPI.update(user.id, updatePayload);
+      saveSession(updated);
+      showToast('Profile updated successfully!', 'success');
+      showAlert('profile-alert', 'Profile information updated successfully.', 'success');
+
+      document.getElementById('new-password').value = '';
+      document.getElementById('confirm-password').value = '';
+      
+      btn.disabled = false;
+      btn.textContent = 'Save Profile Changes';
+      populateProfile();
+
+    } catch (err) {
+      showAlert('profile-alert', 'Failed to update profile: ' + err.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Save Profile Changes';
+    }
+  });
+
+  populateProfile();
+</script>
+</body>
+</html>

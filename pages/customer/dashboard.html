@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Customer Dashboard — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Customer Dashboard</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Welcome Banner -->
+      <div class="dashboard-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.2rem; position:relative; z-index:2;">
+          <div>
+            <h2 style="color:white; margin:0; font-size:1.6rem; font-weight:800; letter-spacing:-0.03em;">Welcome back, <span id="welcome-name">—</span>! 👋</h2>
+            <p style="margin:0.4rem 0 0; color:rgba(255,255,255,0.75); font-size:0.95rem;">
+              Zone: <strong id="welcome-zone" style="color:#38bdf8;">—</strong>
+            </p>
+          </div>
+          <a href="booking.html" class="btn btn-primary" style="font-weight:700; padding:0.85rem 1.6rem; box-shadow:0 6px 25px rgba(14,165,233,0.5);">
+            💧 Book a Tanker
+          </a>
+        </div>
+      </div>
+
+      <!-- Alert container -->
+      <div id="dash-alert" style="display:none;"></div>
+
+      <!-- Stats Grid -->
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📋</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-total">—</div>
+            <div class="stat-label">Total Bookings</div>
+          </div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-pending">—</div>
+            <div class="stat-label">Pending</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">✅</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-approved">—</div>
+            <div class="stat-label">Approved</div>
+          </div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-icon">🚛</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-active">—</div>
+            <div class="stat-label">Active Deliveries</div>
+          </div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-icon">🏁</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-completed">—</div>
+            <div class="stat-label">Completed</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📄</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-subsidy">—</div>
+            <div class="stat-label">Subsidy Status</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Two columns: Recent Bookings + Subsidy Info -->
+      <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem;">
+
+        <!-- Recent Bookings -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📋 Recent Bookings</h3>
+            <a href="my-bookings.html" class="btn btn-sm btn-outline-primary">View All</a>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="recent-bookings-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sidebar Panel: Subsidy + Quick Actions -->
+        <div>
+          <!-- Subsidy Status -->
+          <div class="card">
+            <div class="card-header"><h3>📄 Subsidy Status</h3></div>
+            <div class="card-body" id="subsidy-panel">
+              <div class="spinner-wrapper"><div class="spinner"></div></div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="card">
+            <div class="card-header"><h3>⚡ Quick Actions</h3></div>
+            <div class="card-body" style="display:flex; flex-direction:column; gap:0.6rem;">
+              <a href="booking.html"   class="btn btn-primary">💧 New Booking</a>
+              <a href="my-bookings.html" class="btn btn-secondary">📋 My Bookings</a>
+              <a href="tracking.html"  class="btn btn-secondary">📍 Track Delivery</a>
+              <a href="disputes.html"  class="btn btn-secondary">⚠️ Report Dispute</a>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  // ---- Init page ----
+  const user = initDashboardPage('customer', 'Customer Dashboard');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('welcome-name').textContent = user.name;
+  document.getElementById('header-date').textContent  = new Date().toLocaleDateString('en-PK', {
+    weekday:'short', day:'numeric', month:'short', year:'numeric'
+  });
+
+  // ---- Load dashboard data ----
+  async function loadDashboard() {
+    try {
+      // Load zone name
+      const zone = await ZonesAPI.getById(user.zoneId);
+      document.getElementById('welcome-zone').textContent = zone ? zone.zoneName : '—';
+
+      // Load bookings
+      const bookings = await BookingsAPI.getByCustomer(user.id);
+
+      const total     = bookings.length;
+      const pending   = bookings.filter(b => b.status === 'pending_approval').length;
+      const approved  = bookings.filter(b => b.status === 'approved').length;
+      const active    = bookings.filter(b => ['approved','dispatched','assigned','filling'].includes(b.status)).length;
+      const completed = bookings.filter(b => b.status === 'completed').length;
+
+      document.getElementById('stat-total').textContent     = total;
+      document.getElementById('stat-pending').textContent   = pending;
+      document.getElementById('stat-approved').textContent  = approved;
+      document.getElementById('stat-active').textContent    = active;
+      document.getElementById('stat-completed').textContent = completed;
+
+      // Render recent bookings (last 5)
+      renderRecentBookings(bookings.slice(-5).reverse());
+
+      // Subsidy applications
+      const subsidyApps = await SubsidyAPI.getByCustomer(user.id);
+      renderSubsidyPanel(subsidyApps);
+
+      const latestSubsidy = subsidyApps.length > 0 ? subsidyApps[subsidyApps.length - 1] : null;
+      document.getElementById('stat-subsidy').textContent =
+        latestSubsidy ? capitalize(latestSubsidy.status) : 'None';
+
+    } catch (err) {
+      showAlert('dash-alert',
+        '⚠️ Could not load dashboard data. Make sure JSON Server is running: <code>npm start</code>',
+        'warning');
+    }
+  }
+
+  function renderRecentBookings(bookings) {
+    const container = document.getElementById('recent-bookings-container');
+    if (!bookings || bookings.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <h4>No bookings yet</h4>
+          <p><a href="booking.html">Book your first tanker →</a></p>
+        </div>`;
+      return;
+    }
+
+    const rows = bookings.map(b => `
+      <tr>
+        <td><a href="my-bookings.html" style="font-weight:600;">${escapeHtml(b.id)}</a></td>
+        <td>${makeBadge(b.bookingType)}</td>
+        <td>${b.capacity.toLocaleString()} gal</td>
+        <td>${b.preferredDate}</td>
+        <td>${makeBadge(b.status)}</td>
+      </tr>`).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Booking ID</th>
+              <th>Type</th>
+              <th>Capacity</th>
+              <th>Date</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderSubsidyPanel(apps) {
+    const panel = document.getElementById('subsidy-panel');
+    if (!apps || apps.length === 0) {
+      panel.innerHTML = `
+        <p style="color:var(--text-muted); font-size:0.9rem;">
+          You have not applied for a subsidy yet.
+        </p>
+        <a href="subsidy.html" class="btn btn-sm btn-primary" style="margin-top:0.5rem;">
+          Apply for Subsidy
+        </a>`;
+      return;
+    }
+
+    const latest = apps[apps.length - 1];
+    panel.innerHTML = `
+      <div style="margin-bottom:0.75rem;">
+        ${makeBadge(latest.status)}
+        <p style="margin:0.5rem 0 0; font-size:0.88rem;">
+          <strong>Category:</strong> ${capitalize(latest.applicantCategory)}
+        </p>
+        <p style="margin:0.3rem 0 0; font-size:0.85rem; color:var(--text-muted);">
+          Applied: ${formatDate(latest.createdAt)}
+        </p>
+        ${latest.status === 'rejected' && latest.rejectionReason ? `
+          <div class="alert alert-error" style="margin-top:0.75rem; font-size:0.82rem;">
+            <strong>Reason:</strong> ${escapeHtml(latest.rejectionReason)}
+          </div>` : ''}
+      </div>
+      <a href="subsidy.html" class="btn btn-sm btn-outline-primary">View Details</a>`;
+  }
+
+  function capitalize(str) {
+    if (!str) return '';
+    return str.charAt(0).toUpperCase() + str.slice(1).replace(/_/g, ' ');
+  }
+
+  loadDashboard();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Book a Water Tanker — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Book a Water Tanker</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <div class="card" style="max-width: 800px; margin: 0 auto 2rem;">
+        <div class="card-header">
+          <h3>💧 New Water Tanker Booking</h3>
+        </div>
+        <div class="card-body">
+
+          <!-- Alert container -->
+          <div id="booking-alert" style="display:none;"></div>
+
+          <form id="booking-form" novalidate>
+            
+            <!-- Booking Type -->
+            <div class="form-group">
+              <label for="bookingType">Booking Type <span class="required">*</span></label>
+              <select id="bookingType" name="bookingType" required>
+                <option value="commercial">Commercial (Immediate processing - No approval needed)</option>
+                <option value="subsidised">Subsidised (Requires Zone Officer Approval)</option>
+              </select>
+              <div class="form-hint" id="type-hint">
+                Standard commercial pricing applies.
+              </div>
+            </div>
+
+            <!-- Capacity Selection -->
+            <div class="form-group">
+              <label for="capacity">Tanker Capacity <span class="required">*</span></label>
+              <select id="capacity" name="capacity" required>
+                <option value="1000">1,000 Gallons</option>
+                <option value="3000" selected>3,000 Gallons</option>
+                <option value="6000">6,000 Gallons</option>
+              </select>
+            </div>
+
+            <!-- Price Breakdown Box -->
+            <div class="price-box" style="margin-bottom: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div>
+                  <div class="price-label">Applicable Rate & Total Price</div>
+                  <div class="price-value" id="price-display">Rs. 2,500</div>
+                </div>
+                <div id="price-breakdown" style="font-size: 0.85rem; color: rgba(255,255,255,0.7); text-align: right;">
+                  Original: <span id="original-rate">Rs. 2,500</span> | Subsidy: <span id="subsidy-discount">Rs. 0</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Zone & Hydrant -->
+            <div class="form-row">
+              <div class="form-group">
+                <label for="zone">Delivery Zone</label>
+                <input type="text" id="zone" readonly style="opacity: 0.8; cursor: not-allowed;" />
+              </div>
+
+              <div class="form-group">
+                <label for="hydrantId">Serving Hydrant Station <span class="required">*</span></label>
+                <select id="hydrantId" name="hydrantId" required>
+                  <option value="">Loading available hydrants...</option>
+                </select>
+                <div class="field-error" id="hydrantId-error"></div>
+              </div>
+            </div>
+
+            <!-- Delivery Address -->
+            <div class="form-group">
+              <label for="deliveryAddress">Delivery Address <span class="required">*</span></label>
+              <textarea id="deliveryAddress" name="deliveryAddress" rows="2" required></textarea>
+              <div class="field-error" id="deliveryAddress-error"></div>
+            </div>
+
+            <!-- Date & Time -->
+            <div class="form-row">
+              <div class="form-group">
+                <label for="preferredDate">Preferred Delivery Date <span class="required">*</span></label>
+                <input type="date" id="preferredDate" name="preferredDate" required />
+                <div class="field-error" id="preferredDate-error"></div>
+              </div>
+
+              <div class="form-group">
+                <label for="preferredTime">Preferred Delivery Time <span class="required">*</span></label>
+                <input type="time" id="preferredTime" name="preferredTime" required />
+                <div class="field-error" id="preferredTime-error"></div>
+              </div>
+            </div>
+
+            <!-- Additional Instructions -->
+            <div class="form-group">
+              <label for="instructions">Special Instructions (Optional)</label>
+              <textarea id="instructions" name="instructions" rows="2" placeholder="e.g. Call before arrival, narrow street, etc."></textarea>
+            </div>
+
+            <!-- Submit Button -->
+            <div style="margin-top: 1.5rem; display: flex; gap: 1rem;">
+              <button type="submit" class="btn btn-primary btn-lg" id="submit-btn" style="flex: 1;">
+                Confirm & Submit Booking
+              </button>
+              <a href="dashboard.html" class="btn btn-secondary btn-lg">Cancel</a>
+            </div>
+
+          </form>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('customer', 'Book a Tanker');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  // Pre-fill user details
+  document.getElementById('deliveryAddress').value = user.address || '';
+
+  // Min date today
+  const todayStr = new Date().toISOString().split('T')[0];
+  document.getElementById('preferredDate').min = todayStr;
+  document.getElementById('preferredDate').value = todayStr;
+
+  // Set default time (current time + 2 hours)
+  const now = new Date();
+  now.setHours(now.getHours() + 2);
+  document.getElementById('preferredTime').value = now.toTimeString().slice(0, 5);
+
+  let currentRates = [];
+  let userZone = null;
+
+  async function initBookingPage() {
+    try {
+      // 1. Fetch user zone
+      if (user.zoneId) {
+        userZone = await ZonesAPI.getById(user.zoneId);
+        document.getElementById('zone').value = userZone ? userZone.zoneName : 'Not Assigned';
+      }
+
+      // 2. Fetch hydrants for user's zone
+      const hydrants = await HydrantsAPI.getAll();
+      const zoneHydrants = hydrants.filter(h => h.zoneId === user.zoneId && h.availabilityStatus === 'available');
+      
+      const hydrantSelect = document.getElementById('hydrantId');
+      if (zoneHydrants.length === 0) {
+        hydrantSelect.innerHTML = '<option value="">No available hydrants in your zone</option>';
+      } else {
+        hydrantSelect.innerHTML = '<option value="">-- Select Serving Hydrant --</option>';
+        zoneHydrants.forEach(h => {
+          const opt = document.createElement('option');
+          opt.value = h.id;
+          opt.textContent = `${h.hydrantName} (${h.operatingHours})`;
+          hydrantSelect.appendChild(opt);
+        });
+        if (zoneHydrants.length === 1) {
+          hydrantSelect.value = zoneHydrants[0].id;
+        }
+      }
+
+      // 3. Fetch rates
+      currentRates = await RatesAPI.getAll();
+
+      // Check subsidy eligibility hint
+      updatePriceAndHints();
+
+    } catch (err) {
+      showAlert('booking-alert', 'Unable to load booking configuration. Please make sure JSON server is active.', 'error');
+    }
+  }
+
+  function updatePriceAndHints() {
+    const bookingType = document.getElementById('bookingType').value;
+    const capacity = parseInt(document.getElementById('capacity').value, 10);
+    const hint = document.getElementById('type-hint');
+
+    const rateObj = currentRates.find(r => r.capacity === capacity);
+    const commRate = rateObj ? rateObj.commercialRate : 2500;
+    const subRate = rateObj ? rateObj.subsidisedRate : 500;
+
+    if (bookingType === 'subsidised') {
+      if (!user.subsidyEligible) {
+        hint.innerHTML = '<span style="color: #fca5a5;">⚠️ Note: Your profile is not currently verified for subsidies. Your application may be rejected by the Zone Officer.</span>';
+      } else {
+        hint.innerHTML = `<span style="color: #6ee7b7;">✅ Verified for subsidy (${user.subsidyCategory || 'Eligible'}). Requires Zone Officer approval.</span>`;
+      }
+
+      const discount = commRate - subRate;
+      document.getElementById('price-display').textContent = formatCurrency(subRate);
+      document.getElementById('original-rate').textContent = formatCurrency(commRate);
+      document.getElementById('subsidy-discount').textContent = formatCurrency(discount);
+    } else {
+      hint.textContent = 'Standard commercial booking. Automatic approval and fast-track assignment.';
+      document.getElementById('price-display').textContent = formatCurrency(commRate);
+      document.getElementById('original-rate').textContent = formatCurrency(commRate);
+      document.getElementById('subsidy-discount').textContent = 'Rs. 0';
+    }
+  }
+
+  document.getElementById('bookingType').addEventListener('change', updatePriceAndHints);
+  document.getElementById('capacity').addEventListener('change', updatePriceAndHints);
+
+  // Form Submission
+  document.getElementById('booking-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearAlert('booking-alert');
+    clearFieldErrors('booking-form');
+
+    const bookingType = document.getElementById('bookingType').value;
+    const capacity = parseInt(document.getElementById('capacity').value, 10);
+    const hydrantId = document.getElementById('hydrantId').value;
+    const deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+    const preferredDate = document.getElementById('preferredDate').value;
+    const preferredTime = document.getElementById('preferredTime').value;
+    const instructions = document.getElementById('instructions').value.trim();
+
+    let hasError = false;
+
+    if (!hydrantId) {
+      showFieldError('hydrantId', 'Please select an available hydrant station.');
+      hasError = true;
+    }
+    if (!deliveryAddress || deliveryAddress.length < 8) {
+      showFieldError('deliveryAddress', 'Please provide a complete delivery address.');
+      hasError = true;
+    }
+    if (!preferredDate) {
+      showFieldError('preferredDate', 'Please select preferred delivery date.');
+      hasError = true;
+    }
+    if (!preferredTime) {
+      showFieldError('preferredTime', 'Please select preferred delivery time.');
+      hasError = true;
+    }
+
+    // Check monthly limit for subsidised household customers
+    if (bookingType === 'subsidised' && user.subsidyCategory === 'household' && user.monthlyBookingLimit) {
+      try {
+        const userBookings = await BookingsAPI.getByCustomer(user.id);
+        const thisMonth = new Date().toISOString().slice(0, 7);
+        const monthCount = userBookings.filter(b => b.bookingType === 'subsidised' && b.createdAt.startsWith(thisMonth) && b.status !== 'rejected').length;
+        if (monthCount >= user.monthlyBookingLimit) {
+          showAlert('booking-alert', `Monthly subsidy booking limit of ${user.monthlyBookingLimit} reached for this household.`, 'error');
+          return;
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    if (hasError) return;
+
+    const rateObj = currentRates.find(r => r.capacity === capacity);
+    const originalPrice = rateObj ? rateObj.commercialRate : 2500;
+    const finalPrice = bookingType === 'subsidised' ? (rateObj ? rateObj.subsidisedRate : 500) : originalPrice;
+    const discount = originalPrice - finalPrice;
+
+    // Initial status: commercial bookings are auto-approved; subsidised bookings wait for zone officer
+    const status = bookingType === 'commercial' ? 'approved' : 'pending_approval';
+
+    const newBookingId = generateBookingId();
+    const btn = document.getElementById('submit-btn');
+    btn.disabled = true;
+    btn.textContent = 'Submitting Booking...';
+
+    try {
+      const newBooking = {
+        id: newBookingId,
+        customerId: user.id,
+        bookingType: bookingType,
+        zoneId: user.zoneId,
+        hydrantId: hydrantId,
+        capacity: capacity,
+        deliveryAddress: deliveryAddress,
+        preferredDate: preferredDate,
+        preferredTime: preferredTime,
+        price: finalPrice,
+        originalPrice: originalPrice,
+        subsidyDiscount: discount,
+        status: status,
+        instructions: instructions,
+        createdAt: new Date().toISOString(),
+        approvedBy: bookingType === 'commercial' ? 'system-auto' : null,
+        approvalDate: bookingType === 'commercial' ? new Date().toISOString() : null,
+        rejectionReason: null,
+        tripId: null
+      };
+
+      await BookingsAPI.create(newBooking);
+
+      // Create initial bill record
+      const newBill = {
+        id: generateId('b'),
+        bookingId: newBookingId,
+        customerId: user.id,
+        originalPrice: originalPrice,
+        subsidyDiscount: discount,
+        finalAmount: finalPrice,
+        paymentStatus: 'unpaid'
+      };
+      await BillsAPI.create(newBill);
+
+      showToast(`Booking ${newBookingId} submitted successfully!`, 'success');
+      showAlert('booking-alert', `Success! Booking ID: <strong>${newBookingId}</strong> has been registered (${status === 'approved' ? 'Approved & Ready for Dispatch' : 'Awaiting Zone Officer Approval'}). Redirecting...`, 'success');
+
+      setTimeout(() => {
+        window.location.href = 'my-bookings.html';
+      }, 1500);
+
+    } catch (err) {
+      showAlert('booking-alert', `Booking creation failed: ${err.message}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Confirm & Submit Booking';
+    }
+  });
+
+  initBookingPage();
+</script>
+</body>
+</html>

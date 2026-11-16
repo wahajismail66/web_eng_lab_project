@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Subsidised Booking Approvals — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Booking Approvals</span>
+      </div>
+      <div class="header-right">
+        <span>🏛️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Zone Indicator Card -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+          <div>
+            <div style="font-size: 0.82rem; color: rgba(255,255,255,0.5);">ASSIGNED JURISDICTION</div>
+            <h3 style="color: white; margin: 0;" id="officer-zone-name">Loading zone...</h3>
+          </div>
+          <div style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">
+            Pending Verifications: <strong id="pending-count" style="color: #fcd34d; font-size: 1.1rem;">0</strong>
+          </div>
+        </div>
+      </div>
+
+      <div id="approvals-alert" style="display:none;"></div>
+
+      <!-- Bookings Table -->
+      <div class="card">
+        <div class="card-header">
+          <h3>⏳ Subsidised Tanker Requests Awaiting Approval</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="approvals-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading requests...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Review & Decision Modal -->
+<div class="modal-overlay" id="approval-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-booking-title">Review Subsidised Request</h3>
+      <button class="modal-close" onclick="closeApprovalModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-booking-body">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer" id="modal-booking-footer">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('officer', 'Booking Approvals');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let pendingBookings = [];
+  let zoneCustomers = [];
+
+  async function loadApprovals() {
+    try {
+      // 1. Load Zone info
+      if (user.zoneId) {
+        const zone = await ZonesAPI.getById(user.zoneId);
+        document.getElementById('officer-zone-name').textContent = zone ? zone.zoneName : 'Unassigned Zone';
+      }
+
+      // 2. Load Zone Bookings and Users
+      const [bookings, users] = await Promise.all([
+        BookingsAPI.getByZone(user.zoneId),
+        UsersAPI.getByZone(user.zoneId)
+      ]);
+
+      zoneCustomers = users;
+      pendingBookings = bookings.filter(b => b.status === 'pending_approval' && b.bookingType === 'subsidised');
+      
+      document.getElementById('pending-count').textContent = pendingBookings.length;
+      renderTable(pendingBookings);
+
+    } catch (err) {
+      showAlert('approvals-alert', 'Failed to load booking approvals: ' + err.message, 'error');
+    }
+  }
+
+  function renderTable(bookings) {
+    const container = document.getElementById('approvals-table-container');
+    if (!bookings.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">✅</div>
+          <h4>No pending booking approvals</h4>
+          <p>All subsidised tanker bookings in your zone have been reviewed.</p>
+        </div>`;
+      return;
+    }
+
+    const rows = bookings.map(b => {
+      const customer = zoneCustomers.find(u => u.id === b.customerId) || {};
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(b.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">${formatDate(b.createdAt)}</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(customer.name || 'Unknown')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">CNIC: ${customer.cnic || '—'}</div>
+          </td>
+          <td>${b.capacity.toLocaleString()} gal</td>
+          <td>
+            <div>${b.preferredDate}</div>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${b.preferredTime}</div>
+          </td>
+          <td>
+            <span style="color: #6ee7b7; font-weight: 700;">${formatCurrency(b.price)}</span>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">Disc: ${formatCurrency(b.subsidyDiscount)}</div>
+          </td>
+          <td>
+            ${customer.subsidyEligible ? 
+              `<span class="badge badge-approved">Verified: ${customer.subsidyCategory || 'Yes'}</span>` : 
+              `<span class="badge badge-warning">Unverified Profile</span>`}
+          </td>
+          <td>
+            <button class="btn btn-sm btn-primary" onclick="openReviewModal('${b.id}')">
+              Review & Decide
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Booking ID</th>
+              <th>Applicant</th>
+              <th>Capacity</th>
+              <th>Requested Date</th>
+              <th>Subsidised Price</th>
+              <th>Eligibility</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openReviewModal(bookingId) {
+    const booking = pendingBookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    const customer = zoneCustomers.find(u => u.id === booking.customerId) || {};
+
+    document.getElementById('modal-booking-title').textContent = `Review Booking ${booking.id}`;
+
+    const content = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">APPLICANT NAME</span>
+          <div style="font-weight: 700; color: white;">${escapeHtml(customer.name)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CNIC NUMBER</span>
+          <div>${escapeHtml(customer.cnic || '—')}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">TANKER CAPACITY</span>
+          <div style="font-weight: 600;">${booking.capacity.toLocaleString()} Gallons</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">SUBSIDISED PRICE</span>
+          <div style="color: #7dd3fc; font-weight: 700;">${formatCurrency(booking.price)} (Savings: ${formatCurrency(booking.subsidyDiscount)})</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DELIVERY SCHEDULE</span>
+          <div>${booking.preferredDate} at ${booking.preferredTime}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">SUBSIDY VERIFICATION</span>
+          <div>${customer.subsidyEligible ? '✅ Verified ' + customer.subsidyCategory : '⚠️ Unverified Profile'}</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DELIVERY ADDRESS</span>
+        <div style="background: rgba(255,255,255,0.06); padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.88rem; margin-top: 0.2rem;">
+          ${escapeHtml(booking.deliveryAddress)}
+        </div>
+      </div>
+
+      ${booking.instructions ? `
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">SPECIAL INSTRUCTIONS</span>
+        <div style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">${escapeHtml(booking.instructions)}</div>
+      </div>` : ''}
+
+      <div class="form-group" style="margin-top: 1rem;">
+        <label for="rejection-reason-input">Rejection Reason (Required only if rejecting)</label>
+        <textarea id="rejection-reason-input" rows="2" placeholder="e.g. Subsidy quota exhausted for this area, incomplete credentials, etc."></textarea>
+      </div>
+    `;
+
+    document.getElementById('modal-booking-body').innerHTML = content;
+
+    document.getElementById('modal-booking-footer').innerHTML = `
+      <button class="btn btn-secondary" onclick="closeApprovalModal()">Cancel</button>
+      <button class="btn btn-danger" onclick="rejectBooking('${booking.id}')">Reject Booking</button>
+      <button class="btn btn-success" onclick="approveBooking('${booking.id}')">Approve Booking</button>
+    `;
+
+    document.getElementById('approval-modal').classList.add('open');
+  }
+
+  function closeApprovalModal() {
+    document.getElementById('approval-modal').classList.remove('open');
+  }
+
+  async function approveBooking(bookingId) {
+    if (!confirmAction(`Confirm approval of subsidised booking ${bookingId}?`)) return;
+
+    try {
+      await BookingsAPI.update(bookingId, {
+        status: 'approved',
+        approvedBy: user.id,
+        approvalDate: new Date().toISOString()
+      });
+
+      showToast(`Booking ${bookingId} approved. Transferred to Hydrant Operator.`, 'success');
+      closeApprovalModal();
+      loadApprovals();
+    } catch (err) {
+      showToast('Approval failed: ' + err.message, 'error');
+    }
+  }
+
+  async function rejectBooking(bookingId) {
+    const reasonInput = document.getElementById('rejection-reason-input');
+    const reason = reasonInput ? reasonInput.value.trim() : '';
+
+    if (!reason || reason.length < 5) {
+      alert('Please provide a specific rejection reason for the customer.');
+      if (reasonInput) reasonInput.focus();
+      return;
+    }
+
+    if (!confirmAction(`Confirm rejection of booking ${bookingId}?`)) return;
+
+    try {
+      await BookingsAPI.update(bookingId, {
+        status: 'rejected',
+        approvedBy: user.id,
+        approvalDate: new Date().toISOString(),
+        rejectionReason: reason
+      });
+
+      showToast(`Booking ${bookingId} rejected.`, 'info');
+      closeApprovalModal();
+      loadApprovals();
+    } catch (err) {
+      showToast('Rejection failed: ' + err.message, 'error');
+    }
+  }
+
+  loadApprovals();
+</script>
+</body>
+</html>

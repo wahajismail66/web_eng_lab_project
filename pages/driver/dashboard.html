@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Driver Dashboard — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Driver Dashboard</span>
+      </div>
+      <div class="header-right">
+        <span>🚛 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Driver Banner -->
+      <div class="dashboard-banner">
+        <div style="position:relative; z-index:2;">
+          <h2 style="color:white; margin:0; font-size:1.6rem; font-weight:800; letter-spacing:-0.03em;">🚛 Driver Operations & Trips</h2>
+          <p style="margin:0.4rem 0 0; color:rgba(255,255,255,0.75); font-size:0.95rem;">
+            Welcome on duty, <strong id="driver-name" style="color:#38bdf8;">—</strong>
+          </p>
+        </div>
+      </div>
+
+      <div id="dash-alert" style="display:none;"></div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📋</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-assigned">—</div>
+            <div class="stat-label">Assigned Trips</div>
+          </div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-pending">—</div>
+            <div class="stat-label">Pending Trips</div>
+          </div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-icon">🚛</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-active">—</div>
+            <div class="stat-label">Active Deliveries</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">✅</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-completed">—</div>
+            <div class="stat-label">Completed</div>
+          </div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-icon">❌</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-failed">—</div>
+            <div class="stat-label">Failed Deliveries</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active / Current Trip -->
+      <div class="card">
+        <div class="card-header">
+          <h3>🚛 Current Active Trip</h3>
+          <a href="trips.html" class="btn btn-sm btn-outline-primary">All Trips</a>
+        </div>
+        <div class="card-body" id="active-trip-container">
+          <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+        </div>
+      </div>
+
+      <!-- Recent Trips -->
+      <div class="card">
+        <div class="card-header">
+          <h3>📋 My Recent Trips</h3>
+          <a href="history.html" class="btn btn-sm btn-outline-primary">Full History</a>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div id="recent-trips-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="card">
+        <div class="card-header"><h3>⚡ Quick Actions</h3></div>
+        <div class="card-body" style="display:flex; flex-wrap:wrap; gap:0.75rem;">
+          <a href="trips.html"   class="btn btn-primary">🚛 My Trips</a>
+          <a href="history.html" class="btn btn-secondary">📜 Trip History</a>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('driver', 'Driver Dashboard');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('driver-name').textContent = user.name;
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday:'short', day:'numeric', month:'short', year:'numeric'
+  });
+
+  async function loadDashboard() {
+    try {
+      // Load driver's trips only
+      const trips = await TripsAPI.getByDriver(user.id);
+
+      const assigned  = trips.length;
+      const pending   = trips.filter(t => t.deliveryStatus === 'assigned').length;
+      const active    = trips.filter(t => t.deliveryStatus === 'dispatched' || t.deliveryStatus === 'arrived').length;
+      const completed = trips.filter(t => t.deliveryStatus === 'delivered').length;
+      const failed    = trips.filter(t => t.deliveryStatus === 'failed').length;
+
+      document.getElementById('stat-assigned').textContent  = assigned;
+      document.getElementById('stat-pending').textContent   = pending;
+      document.getElementById('stat-active').textContent    = active;
+      document.getElementById('stat-completed').textContent = completed;
+      document.getElementById('stat-failed').textContent    = failed;
+
+      // Find active trip
+      const activeTrip = trips.find(t => ['dispatched','arrived'].includes(t.deliveryStatus));
+      renderActiveTrip(activeTrip);
+
+      // Recent trips
+      renderRecentTrips(trips.slice(-5).reverse());
+
+    } catch (err) {
+      showAlert('dash-alert',
+        '⚠️ Could not load data. Make sure JSON Server is running: <code>npm start</code>',
+        'warning');
+    }
+  }
+
+  async function renderActiveTrip(trip) {
+    const container = document.getElementById('active-trip-container');
+    if (!trip) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🏁</div>
+          <h4>No active trip right now</h4>
+          <p>Check <a href="trips.html">My Trips</a> for assigned deliveries.</p>
+        </div>`;
+      return;
+    }
+
+    // Load booking details
+    let booking = null;
+    try {
+      booking = await BookingsAPI.getById(trip.bookingId);
+    } catch (e) {}
+
+    container.innerHTML = `
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; flex-wrap:wrap;">
+        <div>
+          <p><strong>Trip ID:</strong> ${escapeHtml(trip.id)}</p>
+          <p><strong>Booking:</strong> ${escapeHtml(trip.bookingId)}</p>
+          <p><strong>Status:</strong> ${makeBadge(trip.deliveryStatus)}</p>
+          <p><strong>Dispatched:</strong> ${formatDateTime(trip.departureTime)}</p>
+        </div>
+        <div>
+          ${booking ? `
+          <p><strong>Delivery Address:</strong><br>${escapeHtml(booking.deliveryAddress)}</p>
+          <p><strong>Capacity:</strong> ${booking.capacity.toLocaleString()} gallons</p>
+          <p><strong>Instructions:</strong> ${escapeHtml(booking.instructions) || '—'}</p>
+          ` : '<p><em>Loading booking details…</em></p>'}
+        </div>
+      </div>
+      <div style="margin-top:1rem; display:flex; gap:0.75rem; flex-wrap:wrap;">
+        <a href="trips.html" class="btn btn-primary">Update Status</a>
+      </div>`;
+  }
+
+  async function renderRecentTrips(trips) {
+    const container = document.getElementById('recent-trips-container');
+    if (!trips.length) {
+      container.innerHTML = `<div class="empty-state" style="padding:2rem;">
+        <div class="empty-icon">🚛</div><h4>No trips yet</h4></div>`;
+      return;
+    }
+    const rows = trips.map(t => `
+      <tr>
+        <td><strong>${escapeHtml(t.id)}</strong></td>
+        <td>${escapeHtml(t.bookingId)}</td>
+        <td>${formatDate(t.departureTime)}</td>
+        <td>${makeBadge(t.deliveryStatus)}</td>
+        <td><a href="trips.html" class="btn btn-sm btn-secondary">View</a></td>
+      </tr>`).join('');
+    container.innerHTML = `
+      <div class="table-wrapper"><table>
+        <thead><tr><th>Trip ID</th><th>Booking</th><th>Date</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  loadDashboard();
+</script>
+</body>
+</html>

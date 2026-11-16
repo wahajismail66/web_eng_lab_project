@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zone Officer Dashboard — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Zone Officer Dashboard</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Zone Banner -->
+      <div class="dashboard-banner">
+        <div style="position:relative; z-index:2;">
+          <h2 style="color:white; margin:0; font-size:1.6rem; font-weight:800; letter-spacing:-0.03em;">🏛️ Zone Officer Command Center</h2>
+          <p style="margin:0.4rem 0 0; color:rgba(255,255,255,0.75); font-size:0.95rem;">
+            Managing Jurisdiction: <strong id="officer-zone" style="color:#38bdf8;">—</strong>
+          </p>
+        </div>
+      </div>
+
+      <div id="dash-alert" style="display:none;"></div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card warning">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-pending-bookings">—</div>
+            <div class="stat-label">Pending Approvals</div>
+          </div>
+        </div>
+        <div class="stat-card warning">
+          <div class="stat-icon">📄</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-pending-subsidy">—</div>
+            <div class="stat-label">Pending Subsidy Apps</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">✅</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-approved">—</div>
+            <div class="stat-label">Approved Bookings</div>
+          </div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-icon">🚛</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-active">—</div>
+            <div class="stat-label">Active in Zone</div>
+          </div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-icon">⚠️</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-disputes">—</div>
+            <div class="stat-label">Open Disputes</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Two columns -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+
+        <!-- Pending Bookings -->
+        <div class="card">
+          <div class="card-header">
+            <h3>⏳ Pending Approvals</h3>
+            <a href="approvals.html" class="btn btn-sm btn-outline-primary">View All</a>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="pending-bookings-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pending Subsidy Applications -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📄 Pending Subsidy Applications</h3>
+            <a href="subsidy-review.html" class="btn btn-sm btn-outline-primary">View All</a>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="pending-subsidy-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="card">
+        <div class="card-header"><h3>⚡ Quick Actions</h3></div>
+        <div class="card-body" style="display:flex; flex-wrap:wrap; gap:0.75rem;">
+          <a href="approvals.html"       class="btn btn-primary">✅ Review Bookings</a>
+          <a href="subsidy-review.html"  class="btn btn-secondary">📄 Review Subsidy Apps</a>
+          <a href="disputes.html"        class="btn btn-warning">⚠️ Manage Disputes</a>
+          <a href="zone-bookings.html"   class="btn btn-secondary">📋 Zone Booking History</a>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('officer', 'Zone Officer Dashboard');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday:'short', day:'numeric', month:'short', year:'numeric'
+  });
+
+  async function loadDashboard() {
+    try {
+      // Load zone
+      const zone = await ZonesAPI.getById(user.zoneId);
+      document.getElementById('officer-zone').textContent = zone ? zone.zoneName : '—';
+
+      // Zone bookings
+      const allBookings = await BookingsAPI.getByZone(user.zoneId);
+      const pending  = allBookings.filter(b => b.status === 'pending_approval' && b.bookingType === 'subsidised');
+      const approved = allBookings.filter(b => b.status === 'approved');
+      const active   = allBookings.filter(b => ['approved','dispatched','assigned','filling'].includes(b.status));
+
+      document.getElementById('stat-pending-bookings').textContent = pending.length;
+      document.getElementById('stat-approved').textContent         = approved.length;
+      document.getElementById('stat-active').textContent           = active.length;
+
+      // Subsidy applications
+      const subsidyApps = await SubsidyAPI.getByZone(user.zoneId);
+      const pendingSubsidy = subsidyApps.filter(s => s.status === 'pending');
+      document.getElementById('stat-pending-subsidy').textContent = pendingSubsidy.length;
+
+      // Disputes
+      const disputes = await DisputesAPI.getAll();
+      const openDisputes = disputes.filter(d => d.status === 'open');
+      document.getElementById('stat-disputes').textContent = openDisputes.length;
+
+      // Render pending bookings table
+      renderPendingBookings(pending.slice(0, 5));
+
+      // Render pending subsidy table
+      renderPendingSubsidy(pendingSubsidy.slice(0, 5));
+
+    } catch (err) {
+      showAlert('dash-alert',
+        '⚠️ Could not load data. Make sure JSON Server is running: <code>npm start</code>',
+        'warning');
+    }
+  }
+
+  function renderPendingBookings(bookings) {
+    const container = document.getElementById('pending-bookings-container');
+    if (!bookings.length) {
+      container.innerHTML = `<div class="empty-state" style="padding:2rem;">
+        <div class="empty-icon">✅</div><h4>No pending approvals</h4></div>`;
+      return;
+    }
+    const rows = bookings.map(b => `
+      <tr>
+        <td><strong>${escapeHtml(b.id)}</strong></td>
+        <td>${b.capacity.toLocaleString()} gal</td>
+        <td>${b.preferredDate}</td>
+        <td>${makeBadge(b.bookingType)}</td>
+      </tr>`).join('');
+    container.innerHTML = `
+      <div class="table-wrapper"><table>
+        <thead><tr><th>ID</th><th>Capacity</th><th>Date</th><th>Type</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  function renderPendingSubsidy(apps) {
+    const container = document.getElementById('pending-subsidy-container');
+    if (!apps.length) {
+      container.innerHTML = `<div class="empty-state" style="padding:2rem;">
+        <div class="empty-icon">✅</div><h4>No pending applications</h4></div>`;
+      return;
+    }
+    const rows = apps.map(a => `
+      <tr>
+        <td><strong>${escapeHtml(a.id)}</strong></td>
+        <td>${escapeHtml(a.applicantCategory)}</td>
+        <td>${formatDate(a.createdAt)}</td>
+        <td>${makeBadge(a.status)}</td>
+      </tr>`).join('');
+    container.innerHTML = `
+      <div class="table-wrapper"><table>
+        <thead><tr><th>ID</th><th>Category</th><th>Applied</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  loadDashboard();
+</script>
+</body>
+</html>

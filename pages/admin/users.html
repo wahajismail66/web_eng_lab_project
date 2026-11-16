@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Management — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">User Management</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Action & Filter Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body">
+          <div class="filter-bar" style="margin-bottom: 0;">
+            <div class="search-input-wrapper">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="search-users" placeholder="Search by name, email, or CNIC..." />
+            </div>
+
+            <div style="min-width: 170px;">
+              <select id="role-filter">
+                <option value="">All Roles</option>
+                <option value="customer">Customers</option>
+                <option value="officer">Zone Officers</option>
+                <option value="operator">Hydrant Operators</option>
+                <option value="driver">Drivers</option>
+                <option value="admin">Administrators</option>
+              </select>
+            </div>
+
+            <div style="min-width: 150px;">
+              <select id="status-filter">
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+            </div>
+
+            <button class="btn btn-primary" onclick="openCreateUserModal()">
+              ➕ Add New User
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div id="users-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>👥 System Accounts Directory</h3>
+          <span id="user-counter" style="font-size: 0.85rem; color: rgba(255,255,255,0.6);">0 Users</span>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="users-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading users...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Create / Edit User Modal -->
+<div class="modal-overlay" id="user-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="user-modal-title">Create System User</h3>
+      <button class="modal-close" onclick="closeUserModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="user-form" novalidate>
+        <input type="hidden" id="edit-user-id" />
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="u-name">Full Name <span class="required">*</span></label>
+            <input type="text" id="u-name" required />
+            <div class="field-error" id="u-name-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="u-role">System Role <span class="required">*</span></label>
+            <select id="u-role" required>
+              <option value="customer">Customer</option>
+              <option value="officer">Zone Officer</option>
+              <option value="operator">Hydrant Operator</option>
+              <option value="driver">Driver</option>
+              <option value="admin">Administrator</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="u-email">Email Address <span class="required">*</span></label>
+            <input type="email" id="u-email" required />
+            <div class="field-error" id="u-email-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="u-phone">Phone Number <span class="required">*</span></label>
+            <input type="tel" id="u-phone" placeholder="03001234567" required />
+            <div class="field-error" id="u-phone-error"></div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="u-cnic">CNIC <span class="required">*</span></label>
+            <input type="text" id="u-cnic" placeholder="35202-1234567-1" required />
+            <div class="field-error" id="u-cnic-error"></div>
+          </div>
+
+          <div class="form-group">
+            <label for="u-password">Password <span class="required">*</span></label>
+            <input type="password" id="u-password" placeholder="demo1234" required />
+            <div class="field-error" id="u-password-error"></div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="u-zone">Assigned Zone</label>
+            <select id="u-zone">
+              <option value="">None / Not Applicable</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="u-hydrant">Assigned Hydrant</label>
+            <select id="u-hydrant">
+              <option value="">None / Not Applicable</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="u-address">Address</label>
+          <input type="text" id="u-address" placeholder="Physical location / office address" />
+        </div>
+
+        <div class="form-group">
+          <label for="u-status">Account Status</label>
+          <select id="u-status">
+            <option value="active">Active</option>
+            <option value="inactive">Inactive / Suspended</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="save-user-btn" style="margin-top: 1rem;">
+          Save User Account
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'User Management');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let allUsersList = [];
+  let allZones = [];
+  let allHydrants = [];
+
+  async function loadUsers() {
+    try {
+      const [users, zones, hydrants] = await Promise.all([
+        UsersAPI.getAll(),
+        ZonesAPI.getAll(),
+        HydrantsAPI.getAll()
+      ]);
+
+      allUsersList = users;
+      allZones = zones;
+      allHydrants = hydrants;
+
+      populateZoneAndHydrantDropdowns();
+      applyUserFilters();
+
+    } catch (err) {
+      showAlert('users-alert', 'Failed to load users: ' + err.message, 'error');
+    }
+  }
+
+  function populateZoneAndHydrantDropdowns() {
+    const zoneSelect = document.getElementById('u-zone');
+    zoneSelect.innerHTML = '<option value="">None / Not Applicable</option>';
+    allZones.forEach(z => {
+      const opt = document.createElement('option');
+      opt.value = z.id;
+      opt.textContent = z.zoneName;
+      zoneSelect.appendChild(opt);
+    });
+
+    const hydrantSelect = document.getElementById('u-hydrant');
+    hydrantSelect.innerHTML = '<option value="">None / Not Applicable</option>';
+    allHydrants.forEach(h => {
+      const opt = document.createElement('option');
+      opt.value = h.id;
+      opt.textContent = h.hydrantName;
+      hydrantSelect.appendChild(opt);
+    });
+  }
+
+  function applyUserFilters() {
+    const q = document.getElementById('search-users').value.trim().toLowerCase();
+    const roleVal = document.getElementById('role-filter').value;
+    const statusVal = document.getElementById('status-filter').value;
+
+    const filtered = allUsersList.filter(u => {
+      const matchQ = (u.name && u.name.toLowerCase().includes(q)) ||
+                     (u.email && u.email.toLowerCase().includes(q)) ||
+                     (u.cnic && u.cnic.includes(q));
+      const matchRole = !roleVal || u.role === roleVal;
+      const matchStatus = !statusVal || u.accountStatus === statusVal;
+      return matchQ && matchRole && matchStatus;
+    });
+
+    renderUsersTable(filtered);
+  }
+
+  document.getElementById('search-users').addEventListener('input', applyUserFilters);
+  document.getElementById('role-filter').addEventListener('change', applyUserFilters);
+  document.getElementById('status-filter').addEventListener('change', applyUserFilters);
+
+  function renderUsersTable(users) {
+    const container = document.getElementById('users-table-container');
+    document.getElementById('user-counter').textContent = `${users.length} Users`;
+
+    if (!users.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">👥</div>
+          <h4>No user accounts found</h4>
+        </div>`;
+      return;
+    }
+
+    const rows = users.map(u => {
+      const zone = allZones.find(z => z.id === u.zoneId) || {};
+      const hydrant = allHydrants.find(h => h.id === u.hydrantId) || {};
+      const isActive = u.accountStatus === 'active';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(u.name)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">${u.email}</div>
+          </td>
+          <td><span class="badge badge-${u.role === 'customer' ? 'commercial' : (u.role === 'admin' ? 'active' : 'assigned')}">${formatRole(u.role)}</span></td>
+          <td>${escapeHtml(u.cnic || '—')}</td>
+          <td>${escapeHtml(u.phone || '—')}</td>
+          <td>
+            <div style="font-size: 0.85rem;">
+              ${zone.zoneName ? `📍 ${zone.zoneName}` : ''}
+              ${hydrant.hydrantName ? `<br>💧 ${hydrant.hydrantName}` : ''}
+              ${!zone.zoneName && !hydrant.hydrantName ? '—' : ''}
+            </div>
+          </td>
+          <td>${makeBadge(u.accountStatus)}</td>
+          <td>
+            <div style="display:flex; gap:0.4rem;">
+              <button class="btn btn-sm btn-secondary" onclick="editUser('${u.id}')">Edit</button>
+              <button class="btn btn-sm ${isActive ? 'btn-danger' : 'btn-success'}" onclick="toggleUserStatus('${u.id}', '${u.accountStatus}')">
+                ${isActive ? 'Deactivate' : 'Activate'}
+              </button>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Role</th>
+              <th>CNIC</th>
+              <th>Phone</th>
+              <th>Assignment</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openCreateUserModal() {
+    document.getElementById('user-modal-title').textContent = 'Create New System User';
+    document.getElementById('edit-user-id').value = '';
+    document.getElementById('user-form').reset();
+    document.getElementById('u-password').required = true;
+    clearFieldErrors('user-form');
+    document.getElementById('user-modal').classList.add('open');
+  }
+
+  function editUser(userId) {
+    const u = allUsersList.find(user => user.id === userId);
+    if (!u) return;
+
+    document.getElementById('user-modal-title').textContent = `Edit User — ${u.name}`;
+    document.getElementById('edit-user-id').value = u.id;
+    document.getElementById('u-name').value = u.name || '';
+    document.getElementById('u-role').value = u.role || 'customer';
+    document.getElementById('u-email').value = u.email || '';
+    document.getElementById('u-phone').value = u.phone || '';
+    document.getElementById('u-cnic').value = u.cnic || '';
+    document.getElementById('u-password').value = '';
+    document.getElementById('u-password').required = false;
+    document.getElementById('u-zone').value = u.zoneId || '';
+    document.getElementById('u-hydrant').value = u.hydrantId || '';
+    document.getElementById('u-address').value = u.address || '';
+    document.getElementById('u-status').value = u.accountStatus || 'active';
+
+    clearFieldErrors('user-form');
+    document.getElementById('user-modal').classList.add('open');
+  }
+
+  function closeUserModal() {
+    document.getElementById('user-modal').classList.remove('open');
+  }
+
+  async function toggleUserStatus(userId, currentStatus) {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    if (!confirmAction(`Confirm status change to ${newStatus}?`)) return;
+
+    try {
+      await UsersAPI.update(userId, { accountStatus: newStatus });
+      showToast(`User status updated to ${newStatus}.`, 'success');
+      loadUsers();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    }
+  }
+
+  document.getElementById('user-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearFieldErrors('user-form');
+
+    const editId = document.getElementById('edit-user-id').value;
+    const name = document.getElementById('u-name').value.trim();
+    const role = document.getElementById('u-role').value;
+    const email = document.getElementById('u-email').value.trim();
+    const phone = document.getElementById('u-phone').value.trim();
+    const cnic = document.getElementById('u-cnic').value.trim();
+    const password = document.getElementById('u-password').value;
+    const zoneId = document.getElementById('u-zone').value || null;
+    const hydrantId = document.getElementById('u-hydrant').value || null;
+    const address = document.getElementById('u-address').value.trim();
+    const accountStatus = document.getElementById('u-status').value;
+
+    let hasError = false;
+    if (!name) { showFieldError('u-name', 'Name is required'); hasError = true; }
+    if (!email) { showFieldError('u-email', 'Valid email is required'); hasError = true; }
+    if (!phone) { showFieldError('u-phone', 'Phone is required'); hasError = true; }
+    if (!cnic) { showFieldError('u-cnic', 'CNIC is required'); hasError = true; }
+    if (!editId && (!password || password.length < 6)) {
+      showFieldError('u-password', 'Password must be at least 6 characters');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    const btn = document.getElementById('save-user-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      if (editId) {
+        const payload = {
+          name, role, email, phone, cnic, zoneId, hydrantId, address, accountStatus
+        };
+        if (password) payload.password = password;
+        await UsersAPI.update(editId, payload);
+        showToast('User updated successfully!', 'success');
+      } else {
+        const newUser = {
+          id: generateId('u'),
+          name, role, email, phone, cnic, password,
+          zoneId, hydrantId, address, accountStatus,
+          subsidyEligible: false,
+          subsidyCategory: null,
+          monthlyBookingLimit: null,
+          createdAt: new Date().toISOString()
+        };
+        await UsersAPI.create(newUser);
+        showToast('New user account registered!', 'success');
+      }
+
+      closeUserModal();
+      loadUsers();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save User Account';
+    }
+  });
+
+  loadUsers();
+</script>
+</body>
+</html>

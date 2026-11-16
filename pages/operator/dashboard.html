@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hydrant Operator Dashboard — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Operator Dashboard</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Hydrant Banner -->
+      <div class="dashboard-banner">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1.2rem; position:relative; z-index:2;">
+          <div>
+            <h2 style="color:white; margin:0; font-size:1.6rem; font-weight:800; letter-spacing:-0.03em;">💧 Hydrant Dispatch Desk</h2>
+            <p style="margin:0.4rem 0 0; color:rgba(255,255,255,0.75); font-size:0.95rem;">
+              Hydrant: <strong id="hydrant-name" style="color:#38bdf8;">—</strong>
+              &nbsp;|&nbsp; Status: <span id="hydrant-status">—</span>
+            </p>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:1.35rem; font-weight:800; color:#38bdf8;" id="today-quota-display">—</div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.6);">Today's Remaining Quota (gallons)</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="dash-alert" style="display:none;"></div>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card warning">
+          <div class="stat-icon">📋</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-today">—</div>
+            <div class="stat-label">Today's Bookings</div>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-awaiting">—</div>
+            <div class="stat-label">Awaiting Assignment</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">🚛</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-available-tankers">—</div>
+            <div class="stat-label">Available Tankers</div>
+          </div>
+        </div>
+        <div class="stat-card info">
+          <div class="stat-icon">💧</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-filling">—</div>
+            <div class="stat-label">Currently Filling</div>
+          </div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-icon">🚀</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-dispatched">—</div>
+            <div class="stat-label">Dispatched Today</div>
+          </div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-icon">🔧</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-unavailable">—</div>
+            <div class="stat-label">Unavailable Tankers</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Two columns -->
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem;">
+
+        <!-- Approved Bookings Waiting -->
+        <div class="card">
+          <div class="card-header">
+            <h3>⏳ Bookings Awaiting Assignment</h3>
+            <a href="bookings.html" class="btn btn-sm btn-outline-primary">View All</a>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="awaiting-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tanker Status -->
+        <div class="card">
+          <div class="card-header">
+            <h3>🚛 Tanker Status</h3>
+            <a href="availability.html" class="btn btn-sm btn-outline-primary">Manage</a>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="tanker-status-container">
+              <div class="spinner-wrapper"><div class="spinner"></div> Loading…</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="card">
+        <div class="card-header"><h3>⚡ Quick Actions</h3></div>
+        <div class="card-body" style="display:flex; flex-wrap:wrap; gap:0.75rem;">
+          <a href="bookings.html"    class="btn btn-primary">📋 Approved Bookings</a>
+          <a href="assignment.html"  class="btn btn-secondary">🚛 Assign Tanker</a>
+          <a href="filling.html"     class="btn btn-secondary">💧 Record Filling</a>
+          <a href="dispatch.html"    class="btn btn-info">🚀 Dispatch Tanker</a>
+          <a href="availability.html" class="btn btn-warning">⚙️ Manage Availability</a>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('operator', 'Operator Dashboard');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday:'short', day:'numeric', month:'short', year:'numeric'
+  });
+
+  async function loadDashboard() {
+    try {
+      // Load hydrant info
+      const hydrant = await HydrantsAPI.getById(user.hydrantId);
+      document.getElementById('hydrant-name').textContent =
+        hydrant ? hydrant.hydrantName : '—';
+      document.getElementById('hydrant-status').innerHTML =
+        hydrant ? makeBadge(hydrant.availabilityStatus) : '—';
+
+      // Load quota
+      const today = new Date().toISOString().split('T')[0];
+      const quotas = await QuotasAPI.getByHydrant(user.hydrantId);
+      const todayQuota = quotas.find(q => q.date === today);
+      document.getElementById('today-quota-display').textContent =
+        todayQuota ? todayQuota.remainingQuota.toLocaleString() : (hydrant ? hydrant.dailyQuota.toLocaleString() : '—');
+
+      // Load tankers at this hydrant
+      const tankers = await TankersAPI.getByHydrant(user.hydrantId);
+      const available  = tankers.filter(t => t.availabilityStatus === 'available' && t.isActive);
+      const filling    = tankers.filter(t => t.availabilityStatus === 'filling');
+      const unavailable= tankers.filter(t => t.availabilityStatus === 'unavailable' || !t.isActive);
+
+      document.getElementById('stat-available-tankers').textContent = available.length;
+      document.getElementById('stat-filling').textContent           = filling.length;
+      document.getElementById('stat-unavailable').textContent       = unavailable.length;
+
+      // Load bookings at this hydrant
+      const bookings = await BookingsAPI.getByHydrant(user.hydrantId);
+      const todayBookings = bookings.filter(b => b.preferredDate === today);
+      const awaiting      = bookings.filter(b => b.status === 'approved');
+      const dispatched    = bookings.filter(b => b.status === 'dispatched' &&
+        b.preferredDate === today);
+
+      document.getElementById('stat-today').textContent    = todayBookings.length;
+      document.getElementById('stat-awaiting').textContent = awaiting.length;
+      document.getElementById('stat-dispatched').textContent = dispatched.length;
+
+      renderAwaitingBookings(awaiting.slice(0, 5));
+      renderTankerStatus(tankers);
+
+    } catch (err) {
+      showAlert('dash-alert',
+        '⚠️ Could not load data. Make sure JSON Server is running: <code>npm start</code>',
+        'warning');
+    }
+  }
+
+  function renderAwaitingBookings(bookings) {
+    const container = document.getElementById('awaiting-container');
+    if (!bookings.length) {
+      container.innerHTML = `<div class="empty-state" style="padding:2rem;">
+        <div class="empty-icon">✅</div><h4>No bookings awaiting assignment</h4></div>`;
+      return;
+    }
+    const rows = bookings.map(b => `
+      <tr>
+        <td><strong><a href="assignment.html?bookingId=${b.id}" style="color:#7dd3fc;">${escapeHtml(b.id)}</a></strong></td>
+        <td>${b.capacity.toLocaleString()} gal</td>
+        <td>${b.preferredDate}</td>
+        <td>${makeBadge(b.bookingType)}</td>
+        <td><a href="assignment.html?bookingId=${b.id}" class="btn btn-sm btn-primary">Assign</a></td>
+      </tr>`).join('');
+    container.innerHTML = `
+      <div class="table-wrapper"><table>
+        <thead><tr><th>ID</th><th>Capacity</th><th>Date</th><th>Type</th><th>Action</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  function renderTankerStatus(tankers) {
+    const container = document.getElementById('tanker-status-container');
+    if (!tankers.length) {
+      container.innerHTML = `<div class="empty-state" style="padding:2rem;">
+        <div class="empty-icon">🚛</div><h4>No tankers registered</h4></div>`;
+      return;
+    }
+    const rows = tankers.map(t => `
+      <tr>
+        <td><strong>${escapeHtml(t.registrationNumber)}</strong></td>
+        <td>${t.capacity.toLocaleString()} gal</td>
+        <td>${makeBadge(t.availabilityStatus)}</td>
+      </tr>`).join('');
+    container.innerHTML = `
+      <div class="table-wrapper"><table>
+        <thead><tr><th>Reg. No.</th><th>Capacity</th><th>Status</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>`;
+  }
+
+  loadDashboard();
+</script>
+</body>
+</html>

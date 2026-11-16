@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zone Management — PaaniLink Admin</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Zone Management</span>
+      </div>
+      <div class="header-right">
+        <span>⚙️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Action Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size:0.8rem; color:rgba(255,255,255,0.5);">MUNICIPAL JURISDICTIONS</div>
+            <h3 style="color:white; margin:0;">Administrative City Water Zones</h3>
+          </div>
+          <button class="btn btn-primary" onclick="openCreateZoneModal()">
+            ➕ Add New Zone
+          </button>
+        </div>
+      </div>
+
+      <div id="zones-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>🗺️ City Operational Zones</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="zones-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading zones...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Zone Modal -->
+<div class="modal-overlay" id="zone-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="zone-modal-title">Create Zone</h3>
+      <button class="modal-close" onclick="closeZoneModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="zone-form" novalidate>
+        <input type="hidden" id="edit-zone-id" />
+
+        <div class="form-group">
+          <label for="z-name">Zone Name <span class="required">*</span></label>
+          <input type="text" id="z-name" placeholder="e.g. Zone 4 - Allama Iqbal Town" required />
+          <div class="field-error" id="z-name-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="z-desc">Territory Description <span class="required">*</span></label>
+          <textarea id="z-desc" rows="2" placeholder="List covered residential blocks, commercial sectors, etc." required></textarea>
+          <div class="field-error" id="z-desc-error"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="z-officer">Assigned Zone Officer</label>
+          <select id="z-officer">
+            <option value="">Unassigned</option>
+          </select>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block" id="save-zone-btn" style="margin-top: 1rem;">
+          Save Zone
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('admin', 'Zone Management');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let zonesList = [];
+  let officersList = [];
+  let hydrantsList = [];
+
+  async function loadZonesData() {
+    try {
+      const [zones, users, hydrants] = await Promise.all([
+        ZonesAPI.getAll(),
+        UsersAPI.getByRole('officer'),
+        HydrantsAPI.getAll()
+      ]);
+
+      zonesList = zones;
+      officersList = users;
+      hydrantsList = hydrants;
+
+      populateOfficerSelect();
+      renderZonesTable(zones);
+
+    } catch (err) {
+      showAlert('zones-alert', 'Failed to load zones: ' + err.message, 'error');
+    }
+  }
+
+  function populateOfficerSelect() {
+    const select = document.getElementById('z-officer');
+    select.innerHTML = '<option value="">Unassigned</option>';
+    officersList.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.id;
+      opt.textContent = `${o.name} (${o.email})`;
+      select.appendChild(opt);
+    });
+  }
+
+  function renderZonesTable(zones) {
+    const container = document.getElementById('zones-table-container');
+    if (!zones.length) {
+      container.innerHTML = `<div class="empty-state"><div class="empty-icon">🗺️</div><h4>No zones found</h4></div>`;
+      return;
+    }
+
+    const rows = zones.map(z => {
+      const officer = officersList.find(o => o.id === z.officerId) || {};
+      const servingHydrants = hydrantsList.filter(h => h.zoneId === z.id);
+
+      return `
+        <tr>
+          <td>
+            <strong style="color:#7dd3fc; font-size:1.05rem;">📍 ${escapeHtml(z.zoneName)}</strong>
+            <div style="font-size:0.78rem; color:rgba(255,255,255,0.4); margin-top:0.2rem;">ID: ${z.id}</div>
+          </td>
+          <td style="max-width:280px; font-size:0.88rem; color:rgba(255,255,255,0.75);">
+            ${escapeHtml(z.description)}
+          </td>
+          <td>
+            ${officer.name ? `<strong>👤 ${escapeHtml(officer.name)}</strong>` : '<span style="color:rgba(255,255,255,0.4);">Unassigned</span>'}
+          </td>
+          <td>
+            <span class="badge badge-filling">${servingHydrants.length} Hydrant${servingHydrants.length === 1 ? '' : 's'}</span>
+          </td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick="editZone('${z.id}')">Edit</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Zone Name</th>
+              <th>Territory Description</th>
+              <th>Assigned Officer</th>
+              <th>Serving Stations</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function openCreateZoneModal() {
+    document.getElementById('zone-modal-title').textContent = 'Create New Zone';
+    document.getElementById('edit-zone-id').value = '';
+    document.getElementById('zone-form').reset();
+    clearFieldErrors('zone-form');
+    document.getElementById('zone-modal').classList.add('open');
+  }
+
+  function editZone(zoneId) {
+    const z = zonesList.find(zone => zone.id === zoneId);
+    if (!z) return;
+
+    document.getElementById('zone-modal-title').textContent = `Edit Zone — ${z.zoneName}`;
+    document.getElementById('edit-zone-id').value = z.id;
+    document.getElementById('z-name').value = z.zoneName || '';
+    document.getElementById('z-desc').value = z.description || '';
+    document.getElementById('z-officer').value = z.officerId || '';
+    clearFieldErrors('zone-form');
+    document.getElementById('zone-modal').classList.add('open');
+  }
+
+  function closeZoneModal() {
+    document.getElementById('zone-modal').classList.remove('open');
+  }
+
+  document.getElementById('zone-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    clearFieldErrors('zone-form');
+
+    const editId = document.getElementById('edit-zone-id').value;
+    const name = document.getElementById('z-name').value.trim();
+    const desc = document.getElementById('z-desc').value.trim();
+    const officerId = document.getElementById('z-officer').value || null;
+
+    let hasError = false;
+    if (!name) { showFieldError('z-name', 'Zone name is required'); hasError = true; }
+    if (!desc) { showFieldError('z-desc', 'Description is required'); hasError = true; }
+    if (hasError) return;
+
+    const btn = document.getElementById('save-zone-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      if (editId) {
+        await ZonesAPI.update(editId, { zoneName: name, description: desc, officerId: officerId });
+        showToast('Zone updated successfully!', 'success');
+      } else {
+        const newZone = {
+          id: generateId('z'),
+          zoneName: name,
+          description: desc,
+          officerId: officerId,
+          status: 'active'
+        };
+        await ZonesAPI.create(newZone);
+        showToast('New zone created!', 'success');
+      }
+      closeZoneModal();
+      loadZonesData();
+    } catch (err) {
+      showToast('Error: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save Zone';
+    }
+  });
+
+  loadZonesData();
+</script>
+</body>
+</html>

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Approved Bookings — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Approved Bookings</span>
+      </div>
+      <div class="header-right">
+        <span>💧 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Hydrant Info Banner -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">HYDRANT OPERATING QUEUE</div>
+            <h3 style="color: white; margin: 0;" id="hydrant-title">Loading Hydrant...</h3>
+          </div>
+          <div style="display:flex; gap: 0.75rem;">
+            <a href="assignment.html" class="btn btn-primary">🚛 Assign Tanker</a>
+            <a href="filling.html" class="btn btn-secondary">💧 Water Filling</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body">
+          <div class="filter-bar" style="margin-bottom: 0;">
+            <div class="search-input-wrapper">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="search-input" placeholder="Search by Booking ID, Address, or Customer..." />
+            </div>
+
+            <div style="min-width: 170px;">
+              <select id="capacity-filter">
+                <option value="">All Capacities</option>
+                <option value="1000">1,000 Gallons</option>
+                <option value="3000">3,000 Gallons</option>
+                <option value="6000">6,000 Gallons</option>
+              </select>
+            </div>
+
+            <div style="min-width: 170px;">
+              <select id="status-filter">
+                <option value="">All Operational Statuses</option>
+                <option value="approved" selected>Awaiting Assignment</option>
+                <option value="assigned">Assigned</option>
+                <option value="filling">Filling</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="delivered">Delivered</option>
+              </select>
+            </div>
+
+            <button class="btn btn-secondary" onclick="loadHydrantBookings()">🔄 Refresh</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="operator-bookings-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>📋 Bookings Queued for This Hydrant</h3>
+          <span id="counter" style="font-size: 0.85rem; color: rgba(255,255,255,0.6);">0 Bookings</span>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="bookings-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading bookings...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Details Modal -->
+<div class="modal-overlay" id="details-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title">Booking Details</h3>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer" id="modal-footer">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('operator', 'Approved Bookings');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let hydrantBookings = [];
+  let allCustomers = [];
+
+  async function loadHydrantBookings() {
+    try {
+      if (user.hydrantId) {
+        const hydrant = await HydrantsAPI.getById(user.hydrantId);
+        document.getElementById('hydrant-title').textContent = hydrant ? `${hydrant.hydrantName} (${hydrant.operatingHours})` : 'Assigned Hydrant';
+      }
+
+      const [bookings, users] = await Promise.all([
+        BookingsAPI.getByHydrant(user.hydrantId),
+        UsersAPI.getAll()
+      ]);
+
+      hydrantBookings = bookings;
+      allCustomers = users;
+      applyFilters();
+
+    } catch (err) {
+      showAlert('operator-bookings-alert', 'Failed to load bookings: ' + err.message, 'error');
+    }
+  }
+
+  function applyFilters() {
+    const q = document.getElementById('search-input').value.trim().toLowerCase();
+    const capVal = document.getElementById('capacity-filter').value;
+    const statusVal = document.getElementById('status-filter').value;
+
+    const filtered = hydrantBookings.filter(b => {
+      const customer = allCustomers.find(u => u.id === b.customerId) || {};
+      const matchSearch = (b.id && b.id.toLowerCase().includes(q)) ||
+                          (b.deliveryAddress && b.deliveryAddress.toLowerCase().includes(q)) ||
+                          (customer.name && customer.name.toLowerCase().includes(q));
+      const matchCap = !capVal || String(b.capacity) === capVal;
+      const matchStatus = !statusVal || b.status === statusVal;
+      return matchSearch && matchCap && matchStatus;
+    });
+
+    renderTable(filtered);
+  }
+
+  document.getElementById('search-input').addEventListener('input', applyFilters);
+  document.getElementById('capacity-filter').addEventListener('change', applyFilters);
+  document.getElementById('status-filter').addEventListener('change', applyFilters);
+
+  function renderTable(bookings) {
+    const container = document.getElementById('bookings-table-container');
+    document.getElementById('counter').textContent = `${bookings.length} Record${bookings.length === 1 ? '' : 's'}`;
+
+    if (!bookings.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <h4>No bookings match current criteria</h4>
+        </div>`;
+      return;
+    }
+
+    const rows = bookings.slice().reverse().map(b => {
+      const customer = allCustomers.find(u => u.id === b.customerId) || {};
+      const isUnassigned = b.status === 'approved';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(b.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">${b.preferredDate} (${b.preferredTime})</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(customer.name || 'Customer')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${customer.phone || '—'}</div>
+          </td>
+          <td>${makeBadge(b.bookingType)}</td>
+          <td><strong>${b.capacity.toLocaleString()} gal</strong></td>
+          <td style="max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(b.deliveryAddress)}
+          </td>
+          <td>${makeBadge(b.status)}</td>
+          <td>
+            <div style="display:flex; gap: 0.4rem;">
+              <button class="btn btn-sm btn-secondary" onclick="viewDetails('${b.id}')">View</button>
+              ${isUnassigned ? `
+                <a href="assignment.html?bookingId=${b.id}" class="btn btn-sm btn-primary">Assign</a>
+              ` : ''}
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Booking ID</th>
+              <th>Customer</th>
+              <th>Type</th>
+              <th>Capacity</th>
+              <th>Delivery Address</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function viewDetails(bookingId) {
+    const booking = hydrantBookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    const customer = allCustomers.find(u => u.id === booking.customerId) || {};
+
+    document.getElementById('modal-title').textContent = `Hydrant Booking — ${booking.id}`;
+
+    const content = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">RECIPIENT</span>
+          <div style="font-weight: 700; color: white;">${escapeHtml(customer.name)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CONTACT PHONE</span>
+          <div>${customer.phone || '—'}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">REQUIRED CAPACITY</span>
+          <div style="font-weight: 700; color: #7dd3fc;">${booking.capacity.toLocaleString()} Gallons</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CURRENT STATUS</span>
+          <div>${makeBadge(booking.status)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">SCHEDULED TIME</span>
+          <div>${booking.preferredDate} at ${booking.preferredTime}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">PRICE</span>
+          <div>${formatCurrency(booking.price)}</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DELIVERY DESTINATION</span>
+        <div style="background: rgba(255,255,255,0.06); padding: 0.75rem; border-radius: 8px; font-size: 0.9rem; margin-top: 0.2rem;">
+          ${escapeHtml(booking.deliveryAddress)}
+        </div>
+      </div>
+
+      ${booking.instructions ? `
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DELIVERY INSTRUCTIONS</span>
+        <div style="font-size: 0.88rem; color: rgba(255,255,255,0.7);">${escapeHtml(booking.instructions)}</div>
+      </div>` : ''}
+    `;
+
+    document.getElementById('modal-body').innerHTML = content;
+
+    const footer = document.getElementById('modal-footer');
+    if (booking.status === 'approved') {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+        <a href="assignment.html?bookingId=${booking.id}" class="btn btn-primary">Proceed to Tanker Assignment →</a>
+      `;
+    } else {
+      footer.innerHTML = `<button class="btn btn-secondary" onclick="closeModal()">Close</button>`;
+    }
+
+    document.getElementById('details-modal').classList.add('open');
+  }
+
+  function closeModal() {
+    document.getElementById('details-modal').classList.remove('open');
+  }
+
+  loadHydrantBookings();
+</script>
+</body>
+</html>

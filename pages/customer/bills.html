@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bills & Payments — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Bills & Payments</span>
+      </div>
+      <div class="header-right">
+        <span>👤 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">🧾</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-total-bills">—</div>
+            <div class="stat-label">Total Invoices</div>
+          </div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-icon">⏳</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-unpaid-bills">—</div>
+            <div class="stat-label">Unpaid Bills</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">💳</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-paid-amount">—</div>
+            <div class="stat-label">Total Paid</div>
+          </div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-icon">🎁</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-subsidy-saved">—</div>
+            <div class="stat-label">Subsidy Savings</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="bills-alert" style="display:none;"></div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Billing Invoices & Receipts</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="bills-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading invoices...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Invoice Modal -->
+<div class="modal-overlay" id="bill-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Official Water Bill Invoice</h3>
+      <button class="modal-close" onclick="closeBillModal()">✕</button>
+    </div>
+    <div class="modal-body" id="bill-modal-content">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer" id="bill-modal-footer">
+      <button class="btn btn-secondary" onclick="closeBillModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('customer', 'Bills & Payments');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let customerBills = [];
+  let customerBookings = [];
+
+  async function loadBills() {
+    try {
+      const [bills, bookings] = await Promise.all([
+        BillsAPI.getByCustomer(user.id),
+        BookingsAPI.getByCustomer(user.id)
+      ]);
+
+      customerBills = bills;
+      customerBookings = bookings;
+
+      // Calculate stats
+      const totalCount = bills.length;
+      const unpaidCount = bills.filter(b => b.paymentStatus === 'unpaid').length;
+      const paidSum = bills.filter(b => b.paymentStatus === 'paid').reduce((s, b) => s + (b.finalAmount || 0), 0);
+      const subsidySaved = bills.reduce((s, b) => s + (b.subsidyDiscount || 0), 0);
+
+      document.getElementById('stat-total-bills').textContent = totalCount;
+      document.getElementById('stat-unpaid-bills').textContent = unpaidCount;
+      document.getElementById('stat-paid-amount').textContent = formatCurrency(paidSum);
+      document.getElementById('stat-subsidy-saved').textContent = formatCurrency(subsidySaved);
+
+      renderBillsTable(bills);
+
+    } catch (err) {
+      showAlert('bills-alert', 'Error fetching billing records: ' + err.message, 'error');
+    }
+  }
+
+  function renderBillsTable(bills) {
+    const container = document.getElementById('bills-table-container');
+    if (!bills.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🧾</div>
+          <h4>No bills issued yet</h4>
+          <p>Bills are automatically generated when you submit water tanker bookings.</p>
+        </div>`;
+      return;
+    }
+
+    const rows = bills.slice().reverse().map(b => {
+      const booking = customerBookings.find(bk => bk.id === b.bookingId) || {};
+      const isPaid = b.paymentStatus === 'paid';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(b.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">Booking: ${b.bookingId}</div>
+          </td>
+          <td>${makeBadge(booking.bookingType || 'commercial')}</td>
+          <td>${booking.capacity ? booking.capacity.toLocaleString() + ' gal' : '—'}</td>
+          <td>${formatCurrency(b.originalPrice)}</td>
+          <td style="color: #6ee7b7;">${b.subsidyDiscount > 0 ? '-' + formatCurrency(b.subsidyDiscount) : 'Rs. 0'}</td>
+          <td><strong style="color: #7dd3fc; font-size: 1rem;">${formatCurrency(b.finalAmount)}</strong></td>
+          <td>${makeBadge(b.paymentStatus)}</td>
+          <td>
+            <div style="display: flex; gap: 0.4rem;">
+              <button class="btn btn-sm btn-secondary" onclick="viewBill('${b.id}')">View</button>
+              ${!isPaid ? `<button class="btn btn-sm btn-primary" onclick="payBill('${b.id}')">Pay Now</button>` : ''}
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Invoice #</th>
+              <th>Type</th>
+              <th>Capacity</th>
+              <th>Standard Rate</th>
+              <th>Subsidy Discount</th>
+              <th>Final Payable</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function viewBill(billId) {
+    const bill = customerBills.find(b => b.id === billId);
+    if (!bill) return;
+    const booking = customerBookings.find(bk => bk.id === bill.bookingId) || {};
+
+    const content = `
+      <div style="background: rgba(255,255,255,0.06); padding: 1.25rem; border-radius: 12px; margin-bottom: 1.25rem;">
+        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.75rem; margin-bottom: 0.75rem;">
+          <div>
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">INVOICE NUMBER</div>
+            <div style="font-weight: 700; font-size: 1.1rem;">${bill.id}</div>
+          </div>
+          <div style="text-align: right;">
+            <div style="font-size: 0.8rem; color: rgba(255,255,255,0.5);">PAYMENT STATUS</div>
+            <div>${makeBadge(bill.paymentStatus)}</div>
+          </div>
+        </div>
+
+        <div style="font-size: 0.9rem; margin-bottom: 0.5rem;">
+          <strong>Billed To:</strong> ${escapeHtml(user.name)}<br>
+          <strong>CNIC:</strong> ${escapeHtml(user.cnic)}<br>
+          <strong>Address:</strong> ${escapeHtml(booking.deliveryAddress || user.address)}
+        </div>
+      </div>
+
+      <div style="font-size: 0.9rem;">
+        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <span>Booking Reference:</span>
+          <strong>${bill.bookingId}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <span>Tanker Capacity:</span>
+          <span>${booking.capacity ? booking.capacity.toLocaleString() + ' Gallons' : '—'}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.08);">
+          <span>Original Rate:</span>
+          <span>${formatCurrency(bill.originalPrice)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.08); color: #6ee7b7;">
+          <span>Subsidy Relief Discount:</span>
+          <span>- ${formatCurrency(bill.subsidyDiscount)}</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 0.75rem 0; font-size: 1.1rem; font-weight: 800; color: #7dd3fc;">
+          <span>Net Payable Amount:</span>
+          <span>${formatCurrency(bill.finalAmount)}</span>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('bill-modal-content').innerHTML = content;
+
+    const footer = document.getElementById('bill-modal-footer');
+    if (bill.paymentStatus === 'unpaid') {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeBillModal()">Close</button>
+        <button class="btn btn-primary" onclick="payBill('${bill.id}')">Pay Online (Mock)</button>
+      `;
+    } else {
+      footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeBillModal()">Close</button>
+        <button class="btn btn-success" disabled>Paid in Full</button>
+      `;
+    }
+
+    document.getElementById('bill-modal').classList.add('open');
+  }
+
+  function closeBillModal() {
+    document.getElementById('bill-modal').classList.remove('open');
+  }
+
+  async function payBill(billId) {
+    if (!confirmAction(`Confirm online mock payment for Invoice ${billId}?`)) return;
+
+    try {
+      await BillsAPI.update(billId, {
+        paymentStatus: 'paid'
+      });
+      showToast('Payment successful! Bill marked as PAID.', 'success');
+      closeBillModal();
+      loadBills();
+    } catch (err) {
+      showToast('Payment failed: ' + err.message, 'error');
+    }
+  }
+
+  loadBills();
+</script>
+</body>
+</html>

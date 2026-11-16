@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Driver Trip History — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Trip History</span>
+      </div>
+      <div class="header-right">
+        <span>🚛 <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Historical Performance Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">📋</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-total-trips">—</div>
+            <div class="stat-label">Total Routes</div>
+          </div>
+        </div>
+        <div class="stat-card success">
+          <div class="stat-icon">✅</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-delivered-trips">—</div>
+            <div class="stat-label">Successful Deliveries</div>
+          </div>
+        </div>
+        <div class="stat-card danger">
+          <div class="stat-icon">❌</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-failed-trips">—</div>
+            <div class="stat-label">Failed Trips</div>
+          </div>
+        </div>
+        <div class="stat-card accent">
+          <div class="stat-icon">💧</div>
+          <div class="stat-info">
+            <div class="stat-value" id="stat-water-delivered">—</div>
+            <div class="stat-label">Gallons Delivered</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body">
+          <div class="filter-bar" style="margin-bottom: 0;">
+            <div class="search-input-wrapper">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="search-input" placeholder="Search by Trip ID or Booking..." />
+            </div>
+
+            <div style="min-width: 180px;">
+              <select id="status-filter">
+                <option value="">All Past Deliveries</option>
+                <option value="delivered">Successfully Delivered</option>
+                <option value="failed">Failed Deliveries</option>
+              </select>
+            </div>
+
+            <button class="btn btn-secondary" onclick="loadDriverHistory()">🔄 Refresh History</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>📜 Completed & Past Delivery Records</h3>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="history-table-container">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading historical trips...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('driver', 'Trip History');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let driverHistoryTrips = [];
+  let allBookings = [];
+  let allTankers = [];
+
+  async function loadDriverHistory() {
+    try {
+      const [trips, bookings, tankers] = await Promise.all([
+        TripsAPI.getByDriver(user.id),
+        BookingsAPI.getAll(),
+        TankersAPI.getAll()
+      ]);
+
+      allBookings = bookings;
+      allTankers = tankers;
+
+      driverHistoryTrips = trips;
+
+      // Stats
+      const total = trips.length;
+      const delivered = trips.filter(t => t.deliveryStatus === 'delivered').length;
+      const failed = trips.filter(t => t.deliveryStatus === 'failed').length;
+      const waterSum = trips.filter(t => t.deliveryStatus === 'delivered')
+                            .reduce((s, t) => s + (t.waterQuantityFilled || 0), 0);
+
+      document.getElementById('stat-total-trips').textContent = total;
+      document.getElementById('stat-delivered-trips').textContent = delivered;
+      document.getElementById('stat-failed-trips').textContent = failed;
+      document.getElementById('stat-water-delivered').textContent = waterSum.toLocaleString();
+
+      applyHistoryFilter();
+
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function applyHistoryFilter() {
+    const q = document.getElementById('search-input').value.trim().toLowerCase();
+    const statusVal = document.getElementById('status-filter').value;
+
+    const filtered = driverHistoryTrips.filter(t => {
+      const matchSearch = (t.id && t.id.toLowerCase().includes(q)) ||
+                          (t.bookingId && t.bookingId.toLowerCase().includes(q));
+      const matchStatus = !statusVal || t.deliveryStatus === statusVal;
+      return matchSearch && matchStatus;
+    });
+
+    renderHistoryTable(filtered);
+  }
+
+  document.getElementById('search-input').addEventListener('input', applyHistoryFilter);
+  document.getElementById('status-filter').addEventListener('change', applyHistoryFilter);
+
+  function renderHistoryTable(trips) {
+    const container = document.getElementById('history-table-container');
+    if (!trips.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📜</div>
+          <h4>No trip records match criteria</h4>
+        </div>`;
+      return;
+    }
+
+    const rows = trips.slice().reverse().map(t => {
+      const booking = allBookings.find(b => b.id === t.bookingId) || {};
+      const tanker = allTankers.find(tk => tk.id === t.tankerId) || {};
+      const isFailed = t.deliveryStatus === 'failed';
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(t.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">Booking: ${t.bookingId}</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(tanker.registrationNumber || 'Tanker')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${t.waterQuantityFilled ? t.waterQuantityFilled.toLocaleString() + ' gal' : '—'}</div>
+          </td>
+          <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${escapeHtml(booking.deliveryAddress || '—')}
+          </td>
+          <td>
+            <div style="font-size: 0.85rem;">
+              Dep: ${t.departureTime ? formatTime(t.departureTime) : '—'}<br>
+              Arr: ${t.deliveredTime ? formatTime(t.deliveredTime) : (t.arrivalTime ? formatTime(t.arrivalTime) : '—')}
+            </div>
+          </td>
+          <td>${makeBadge(t.deliveryStatus)}</td>
+          <td>
+            ${isFailed ? `
+              <span style="color:#fca5a5; font-size:0.8rem;">${escapeHtml(t.failureReason || 'Failed')}</span>
+            ` : (t.customerConfirmed ? `
+              <span style="color:#6ee7b7; font-size:0.82rem;">✅ Verified by Customer</span>
+            ` : `
+              <span style="color:rgba(255,255,255,0.45); font-size:0.82rem;">Delivered</span>
+            `)}
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Trip ID</th>
+              <th>Tanker</th>
+              <th>Destination Address</th>
+              <th>Timestamps</th>
+              <th>Status</th>
+              <th>Delivery Outcome</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  loadDriverHistory();
+</script>
+</body>
+</html>

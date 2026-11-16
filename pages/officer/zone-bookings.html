@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zone Booking History — PaaniLink</title>
+  <link rel="stylesheet" href="../../css/style.css" />
+</head>
+<body>
+<div class="app-wrapper">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar"></aside>
+
+  <!-- Main Content -->
+  <div class="main-content">
+
+    <!-- Top Header -->
+    <header class="top-header">
+      <div style="display:flex; align-items:center; gap:0.75rem;">
+        <button class="hamburger-btn" id="hamburger-btn">☰</button>
+        <span class="page-title" id="page-title">Zone Bookings</span>
+      </div>
+      <div class="header-right">
+        <span>🏛️ <strong id="header-user"></strong></span>
+        <span id="header-date"></span>
+      </div>
+    </header>
+
+    <!-- Page Content -->
+    <main class="page-content">
+
+      <!-- Filter Bar -->
+      <div class="card" style="margin-bottom: 1.5rem;">
+        <div class="card-body">
+          <div class="filter-bar" style="margin-bottom: 0;">
+            
+            <div class="search-input-wrapper">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="zone-search" placeholder="Search by Booking ID or Address..." />
+            </div>
+
+            <div style="min-width: 180px;">
+              <select id="status-filter">
+                <option value="">All Statuses</option>
+                <option value="pending_approval">Awaiting Approval</option>
+                <option value="approved">Approved</option>
+                <option value="assigned">Assigned</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="delivered">Delivered</option>
+                <option value="completed">Completed</option>
+                <option value="rejected">Rejected</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <div style="min-width: 150px;">
+              <select id="type-filter">
+                <option value="">All Types</option>
+                <option value="commercial">Commercial</option>
+                <option value="subsidised">Subsidised</option>
+              </select>
+            </div>
+
+            <button class="btn btn-secondary" onclick="loadZoneHistory()">🔄 Refresh</button>
+
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>📋 Complete Zone Booking Ledger</h3>
+          <span id="zone-records-counter" style="font-size: 0.85rem; color: rgba(255,255,255,0.6);">Loading...</span>
+        </div>
+        <div class="card-body" style="padding: 0;">
+          <div id="zone-history-table">
+            <div class="spinner-wrapper"><div class="spinner"></div> Loading zone records...</div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- Details Modal -->
+<div class="modal-overlay" id="history-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-hist-title">Booking Dossier</h3>
+      <button class="modal-close" onclick="closeHistoryModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-hist-body">
+      <!-- Injected via JS -->
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeHistoryModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
+<!-- Scripts -->
+<script src="../../js/api.js"></script>
+<script src="../../js/auth.js"></script>
+<script src="../../js/nav.js"></script>
+<script>
+  const user = initDashboardPage('officer', 'Zone Bookings');
+  if (!user) throw new Error('Not authenticated');
+
+  document.getElementById('header-date').textContent = new Date().toLocaleDateString('en-PK', {
+    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
+  });
+
+  let zoneBookings = [];
+  let zoneCustomers = [];
+
+  async function loadZoneHistory() {
+    try {
+      const [bookings, users] = await Promise.all([
+        BookingsAPI.getByZone(user.zoneId),
+        UsersAPI.getByZone(user.zoneId)
+      ]);
+
+      zoneBookings = bookings;
+      zoneCustomers = users;
+      applyHistoryFilters();
+
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function applyHistoryFilters() {
+    const q = document.getElementById('zone-search').value.trim().toLowerCase();
+    const statusVal = document.getElementById('status-filter').value;
+    const typeVal = document.getElementById('type-filter').value;
+
+    const filtered = zoneBookings.filter(b => {
+      const matchSearch = (b.id && b.id.toLowerCase().includes(q)) ||
+                          (b.deliveryAddress && b.deliveryAddress.toLowerCase().includes(q));
+      const matchStatus = !statusVal || b.status === statusVal;
+      const matchType = !typeVal || b.bookingType === typeVal;
+      return matchSearch && matchStatus && matchType;
+    });
+
+    renderHistoryTable(filtered);
+  }
+
+  document.getElementById('zone-search').addEventListener('input', applyHistoryFilters);
+  document.getElementById('status-filter').addEventListener('change', applyHistoryFilters);
+  document.getElementById('type-filter').addEventListener('change', applyHistoryFilters);
+
+  function renderHistoryTable(bookings) {
+    const container = document.getElementById('zone-history-table');
+    document.getElementById('zone-records-counter').textContent = `${bookings.length} Record${bookings.length === 1 ? '' : 's'}`;
+
+    if (!bookings.length) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">📭</div>
+          <h4>No bookings found for this criteria</h4>
+        </div>`;
+      return;
+    }
+
+    const rows = bookings.slice().reverse().map(b => {
+      const customer = zoneCustomers.find(u => u.id === b.customerId) || {};
+
+      return `
+        <tr>
+          <td>
+            <strong>${escapeHtml(b.id)}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.4);">${formatDate(b.createdAt)}</div>
+          </td>
+          <td>
+            <strong>${escapeHtml(customer.name || 'Resident')}</strong>
+            <div style="font-size: 0.75rem; color: rgba(255,255,255,0.5);">${customer.phone || '—'}</div>
+          </td>
+          <td>${makeBadge(b.bookingType)}</td>
+          <td>${b.capacity.toLocaleString()} gal</td>
+          <td>${b.preferredDate}</td>
+          <td><strong>${formatCurrency(b.price)}</strong></td>
+          <td>${makeBadge(b.status)}</td>
+          <td>
+            <button class="btn btn-sm btn-secondary" onclick="viewBookingDossier('${b.id}')">Details</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Booking ID</th>
+              <th>Customer</th>
+              <th>Type</th>
+              <th>Capacity</th>
+              <th>Date</th>
+              <th>Price</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }
+
+  function viewBookingDossier(bookingId) {
+    const booking = zoneBookings.find(b => b.id === bookingId);
+    if (!booking) return;
+    const customer = zoneCustomers.find(u => u.id === booking.customerId) || {};
+
+    document.getElementById('modal-hist-title').textContent = `Booking Dossier — ${booking.id}`;
+
+    const content = `
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CUSTOMER</span>
+          <div style="font-weight: 700; color: white;">${escapeHtml(customer.name)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CONTACT / CNIC</span>
+          <div>${customer.phone || '—'} / ${customer.cnic || '—'}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">BOOKING TYPE</span>
+          <div>${makeBadge(booking.bookingType)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">CAPACITY</span>
+          <div>${booking.capacity.toLocaleString()} Gallons</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">STATUS</span>
+          <div>${makeBadge(booking.status)}</div>
+        </div>
+        <div>
+          <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">FINANCIALS</span>
+          <div>Net: ${formatCurrency(booking.price)} (Original: ${formatCurrency(booking.originalPrice)})</div>
+        </div>
+      </div>
+
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">DELIVERY ADDRESS</span>
+        <div style="background: rgba(255,255,255,0.06); padding: 0.65rem 0.85rem; border-radius: 8px; font-size: 0.88rem; margin-top: 0.2rem;">
+          ${escapeHtml(booking.deliveryAddress)}
+        </div>
+      </div>
+
+      ${booking.instructions ? `
+      <div style="margin-bottom: 1rem;">
+        <span style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">INSTRUCTIONS</span>
+        <div style="font-size: 0.85rem; color: rgba(255,255,255,0.7);">${escapeHtml(booking.instructions)}</div>
+      </div>` : ''}
+
+      ${booking.rejectionReason ? `
+      <div class="alert alert-error">
+        <strong>Rejection Reason:</strong><br>${escapeHtml(booking.rejectionReason)}
+      </div>` : ''}
+    `;
+
+    document.getElementById('modal-hist-body').innerHTML = content;
+    document.getElementById('history-modal').classList.add('open');
+  }
+
+  function closeHistoryModal() {
+    document.getElementById('history-modal').classList.remove('open');
+  }
+
+  loadZoneHistory();
+</script>
+</body>
+</html>
